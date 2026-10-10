@@ -1,0 +1,42 @@
+# Pinned digest for reproducible test builds.
+ARG PY_VERSION=3.14
+ARG PY_BASE=python:3.14-slim@sha256:c3e521df8b2b498a7a682e7e18676771cb80c6b75b8699af886b2d554ce40151
+FROM ${PY_BASE}
+
+# PyQt6 runtime deps for Linux
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libgl1 \
+    libegl1 \
+    libxkbcommon-x11-0 \
+    libdbus-1-3 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+# `.coveragerc` must be present or the container's coverage numbers silently
+# diverge from CI. `Dockerfile` + `requirements-docker.txt` are asserted on by
+# the supply-chain guards in tests/test_known_issues_1_3_0.py.
+COPY pyproject.toml requirements.txt requirements-test.txt README.md MANIFEST.in LICENSE .coveragerc Dockerfile requirements-docker.txt ./
+COPY src/ ./src/
+COPY tests/ ./tests/
+COPY docs/ ./docs/
+# tests/test_fork_watch.py imports scripts/fork_watch.py directly; without this
+# the whole module skips itself and the triage logic goes untested in CI.
+COPY scripts/ ./scripts/
+
+RUN pip install --no-cache-dir --upgrade pip
+RUN pip install --no-cache-dir -e ".[test]"
+
+# Tests write coverage, pytest and Hypothesis caches under /app. Give the
+# test account ownership after the editable install has finished.
+ARG APP_UID=10001
+ARG APP_GID=10001
+RUN groupadd -g ${APP_GID} app && \
+    useradd -u ${APP_UID} -g ${APP_GID} -d /home/app -m -s /usr/sbin/nologin app && \
+    chown -R app:app /app
+
+USER app
+
+# tdata_test.py — live integration test, requires real Telegram auth, excluded from CI
+CMD ["pytest", "-v", "--tb=short", "--ignore=tests/tdata_test.py", "tests/"]

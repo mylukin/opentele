@@ -1,16 +1,48 @@
 from __future__ import annotations
 
-from .configs import *
-from . import shared as td
+import logging
+import os
 
 from telethon.network.connection.connection import Connection
 from telethon.network.connection.tcpfull import ConnectionTcpFull
 from telethon.sessions.abstract import Session
 
-import logging
+from ..tl import pyrogram_bridge as pyro
+from . import shared as td
+from .configs import *
 
 # if TYPE_CHECKING:
 #     from ..opentele import *
+
+
+def _GuardCount(count: int, pair_bytes: int, stream, key_name: str) -> None:
+    """Phase 1.0.3 DoS guard: refuse unbounded count loops on untrusted input.
+
+    Before entering a ``for i in range(count)`` over fixed-size-per-iteration
+    payload, verify ``count * pair_bytes`` fits in ``stream.bytesAvailable()``.
+    Without this guard, a malformed tdata blob with ``count = 0xFFFFFFFF``
+    (~4 G iterations) would spin for minutes consuming CPU before the trailing
+    ``ExpectStreamStatus`` finally trips.
+
+    Raise ``TDataReadMapDataFailed`` early so the read path fails fast and the
+    swallowing ``except OpenTeleException`` in ``TDesktop.__loadFromTData`` can
+    do its job.
+    """
+    if count <= 0:
+        return
+    try:
+        available = stream.bytesAvailable()
+    except AttributeError:
+        # Older stream wrapper without bytesAvailable() — skip guard, fall back
+        # to the trailing ExpectStreamStatus. Not a regression vs Phase 5.
+        return
+    max_pairs = available // pair_bytes
+    if count > max_pairs:
+        raise TDataReadMapDataFailed(
+            f"Corrupt map data: {key_name} declares count={count} but only "
+            f"{available} bytes available (max {max_pairs} pairs of "
+            f"{pair_bytes} bytes). Refusing unbounded loop (DoS guard)."
+        )
 
 
 class MapData(BaseObject):  # nocov
@@ -34,22 +66,33 @@ class MapData(BaseObject):  # nocov
         self._featuredCustomEmojiKey = FileKey(0)
         self._archivedCustomEmojiKey = FileKey(0)
         self._searchSuggestionsKey = FileKey(0)
-        self._webviewStorageTokenBots = FileKey(0)
-        self._webviewStorageTokenOther = FileKey(0)
+        # В TDesktop это QByteArray (token data), не FileKey. Источник:
+        # storage_account.cpp dev: `lskWebviewTokens = 0x19, // data: QByteArray bots, QByteArray other`
+        self._webviewStorageTokenBots = QByteArray()
+        self._webviewStorageTokenOther = QByteArray()
         self._savedGifsKey = FileKey(0)
         self._recentStickersKeyOld = FileKey(0)
         self._legacyBackgroundKeyDay = FileKey(0)
         self._legacyBackgroundKeyNight = FileKey(0)
 
-        # self._settingsKey = FileKey(0)
-        # ! TO BE ADDED
-        self._settingsKey = FileKey(1851671142505648812)
-        """MUST HAVE OR CAN'T WRITE MAPDATA, I'M WOKRING TO FIX THIS"""
+        # Phase 1.0.1: removed hardcoded `FileKey(1851671142505648812)` upstream magic.
+        # That value only existed to pad the EncryptedDescriptor to >= 16 bytes for AES
+        # block alignment; we now pad correctly in `Storage.PrepareEncrypted` instead.
+        self._settingsKey = FileKey(0)
 
         self._recentHashtagsAndBotsKey = FileKey(0)
         self._exportSettingsKey = FileKey(0)
         self._installedMasksKey = FileKey(0)
         self._recentMasksKey = FileKey(0)
+        # Новые ключи Telegram Desktop 5.x-6.x (источник: RobertAzovski + Phase 1.5)
+        self._roundPlaceholder = FileKey(0)
+        self._inlineBotsDownloads = FileKey(0)
+        self._mediaLastPlaybackPositions = FileKey(0)
+        # botStorages — map [PeerId -> FileKey], не single key. Источник: TDesktop.
+        self._botStoragesMap: Dict[PeerId, FileKey] = {}
+        self._botStoragesNotReadMap: Dict[PeerId, bool] = {}
+        # lskPrefs — добавлен в Phase 1.5 после ревью (Codex обнаружил по C++ источнику).
+        self._prefsKey = FileKey(0)
 
     def read(self, localKey: td.AuthKey, legacyPasscode: QByteArray) -> None:
 
@@ -119,14 +162,21 @@ class MapData(BaseObject):  # nocov
         featuredCustomEmojiKey = 0
         archivedCustomEmojiKey = 0
         searchSuggestionsKey = 0
-        webviewStorageTokenBots = 0
-        webviewStorageTokenOther = 0
+        webviewStorageTokenBots = QByteArray()
+        webviewStorageTokenOther = QByteArray()
         savedGifsKey = 0
         legacyBackgroundKeyDay = 0
         legacyBackgroundKeyNight = 0
         userSettingsKey = 0
         recentHashtagsAndBotsKey = 0
         exportSettingsKey = 0
+        # Новые ключи Telegram Desktop 5.x-6.x (источник: RobertAzovski + Phase 1.5 review)
+        roundPlaceholder = 0
+        inlineBotsDownloads = 0
+        mediaLastPlaybackPositions = 0
+        botStoragesMap: typing.Dict[PeerId, FileKey] = {}
+        botStoragesNotReadMap: typing.Dict[PeerId, bool] = {}
+        prefsKey = 0
 
         is_finished = False
 
@@ -135,6 +185,8 @@ class MapData(BaseObject):  # nocov
 
             if keyType == lskType.lskDraft:
                 count = map.stream.readUInt32()
+                # Phase 1.0.3 DoS guard: 16 bytes per pair (FileKey uint64 + PeerId uint64)
+                _GuardCount(count, sizeof(uint64) * 2, map.stream, "lskDraft")
                 for i in range(count):
                     key = FileKey(map.stream.readUInt64())
                     peerIdSerialized = map.stream.readUInt64()
@@ -147,6 +199,8 @@ class MapData(BaseObject):  # nocov
 
             elif keyType == lskType.lskDraftPosition:
                 count = map.stream.readUInt32()
+                # Phase 1.0.3 DoS guard: 16 bytes per pair
+                _GuardCount(count, sizeof(uint64) * 2, map.stream, "lskDraftPosition")
                 for i in range(count):
                     key = FileKey(map.stream.readUInt64())
                     peerIdSerialized = map.stream.readUInt64()
@@ -159,6 +213,13 @@ class MapData(BaseObject):  # nocov
                 or (keyType == lskType.lskLegacyAudios)
             ):
                 count = map.stream.readUInt32()
+                # Phase 1.0.3 DoS guard: 28 bytes per item (3 × uint64 + int32)
+                _GuardCount(
+                    count,
+                    sizeof(uint64) * 3 + sizeof(int32),
+                    map.stream,
+                    "lskLegacyImages/StickerImages/Audios",
+                )
                 for i in range(count):
                     filekey = map.stream.readUInt64()
                     first = map.stream.readUInt64()
@@ -179,11 +240,12 @@ class MapData(BaseObject):  # nocov
                 recentStickersKeyOld = map.stream.readUInt64()
 
             elif keyType == lskType.lskBackgroundOldOld:
-                # TO BE ADDED
+                # Соответствует C++ оригиналу:
                 # map.stream >> (Window::Theme::IsNightMode()
-                #     ? legacyBackgroundKeyNight
-                #     : legacyBackgroundKeyDay);
-                map.stream >> legacyBackgroundKeyDay
+                #     ? legacyBackgroundKeyNight : legacyBackgroundKeyDay);
+                # В upstream Python-портe была неверная строка `map.stream >> name`,
+                # которая в Python это no-op `__rshift__`, плюс name был undefined.
+                legacyBackgroundKeyDay = map.stream.readUInt64()
 
             elif keyType == lskType.lskBackgroundOld:
                 legacyBackgroundKeyDay = map.stream.readUInt64()
@@ -233,10 +295,59 @@ class MapData(BaseObject):  # nocov
                 searchSuggestionsKey = map.stream.readUInt64()
 
             elif keyType == lskType.lskWebviewTokens:
-                is_finished = True
+                # data: QByteArray bots, QByteArray other
+                # Источник: TDesktop storage_account.cpp dev branch, case lskWebviewTokens.
+                # Phase 1 init commit ошибочно реализовал как два uint64 — исправлено.
+                map.stream >> webviewStorageTokenBots
+                map.stream >> webviewStorageTokenOther
+
+            # Новые ключи Telegram Desktop 5.x-6.x (источник: RobertAzovski)
+            elif keyType == lskType.lskRoundPlaceholder:
+                roundPlaceholder = map.stream.readUInt64()
+
+            elif keyType == lskType.lskInlineBotsDownloads:
+                inlineBotsDownloads = map.stream.readUInt64()
+
+            elif keyType == lskType.lskMediaLastPlaybackPositions:
+                mediaLastPlaybackPositions = map.stream.readUInt64()
+
+            elif keyType == lskType.lskBotStorages:
+                # map: uint32 count + count × (FileKey uint64, PeerId uint64)
+                # Источник: TDesktop storage_account.cpp dev, case lskBotStorages.
+                count = map.stream.readUInt32()
+                # Phase 1.0.3 DoS guard: 16 bytes per pair
+                _GuardCount(count, sizeof(uint64) * 2, map.stream, "lskBotStorages")
+                for _ in range(count):
+                    bs_key = FileKey(map.stream.readUInt64())
+                    bs_peerIdSerialized = map.stream.readUInt64()
+                    bs_peerId = PeerId.FromSerialized(bs_peerIdSerialized)
+                    botStoragesMap[bs_peerId] = bs_key
+                    botStoragesNotReadMap[bs_peerId] = True
+
+            elif keyType == lskType.lskPrefs:
+                # no data tag — payload: uint64 prefsKey. Источник: TDesktop.
+                prefsKey = map.stream.readUInt64()
 
             else:
-                logging.warning(f"Unknown key type in encrypted map: {keyType}")
+                # 1.3.0: an unknown lskType has an unknown payload size, so we
+                # cannot safely keep reading — the next readUInt32() would pick
+                # up payload bytes as a "next keyType" and desync the stream.
+                # Default: fail-closed with a clear exception. Set the env var
+                # OPENTELE_LENIENT_UNKNOWN_LSK=1 to log-and-stop instead (you
+                # still lose any data after this key, but the partial map is
+                # returned).
+                msg = (
+                    f"Unknown lskType key {int(keyType):#x} at offset "
+                    f"{map.stream.bytesAvailable()} bytes remaining. Likely a "
+                    "newer Telegram Desktop introduced an lskType we don't "
+                    "know. File an issue at "
+                    "https://github.com/stufently/opentele/issues with the "
+                    "TDesktop version that produced this tdata."
+                )
+                if os.environ.get("OPENTELE_LENIENT_UNKNOWN_LSK") == "1":
+                    logging.warning(msg)
+                    break  # stop parsing — payload size unknown
+                raise TDataReadMapDataFailed(msg)
 
             ExpectStreamStatus(map.stream, "Could not stream data from mapData ")
 
@@ -269,6 +380,13 @@ class MapData(BaseObject):  # nocov
         self._settingsKey = userSettingsKey
         self._recentHashtagsAndBotsKey = recentHashtagsAndBotsKey
         self._exportSettingsKey = exportSettingsKey
+        # Новые ключи Telegram Desktop 5.x-6.x
+        self._roundPlaceholder = roundPlaceholder
+        self._inlineBotsDownloads = inlineBotsDownloads
+        self._mediaLastPlaybackPositions = mediaLastPlaybackPositions
+        self._botStoragesMap = botStoragesMap
+        self._botStoragesNotReadMap = botStoragesNotReadMap
+        self._prefsKey = prefsKey
         self._oldMapVersion = mapData.version
 
     def prepareToWrite(self) -> td.Storage.EncryptedDescriptor:
@@ -314,8 +432,25 @@ class MapData(BaseObject):  # nocov
             mapSize += sizeof(uint32) + 3 * sizeof(uint64)
         if self._searchSuggestionsKey:
             mapSize += sizeof(uint32) + sizeof(uint64)
-        if self._webviewStorageTokenBots or self._webviewStorageTokenOther:
-            mapSize += sizeof(uint32) + 2 * sizeof(uint64)
+        if not self._webviewStorageTokenBots.isEmpty() or not self._webviewStorageTokenOther.isEmpty():
+            # uint32 key + 2 × QByteArray (4-byte length prefix + payload каждый)
+            mapSize += (
+                sizeof(uint32)
+                + td.Serialize.bytearraySize(self._webviewStorageTokenBots)
+                + td.Serialize.bytearraySize(self._webviewStorageTokenOther)
+            )
+        # Новые ключи Telegram Desktop 5.x-6.x (источник: RobertAzovski)
+        if self._roundPlaceholder:
+            mapSize += sizeof(uint32) + sizeof(uint64)
+        if self._inlineBotsDownloads:
+            mapSize += sizeof(uint32) + sizeof(uint64)
+        if self._mediaLastPlaybackPositions:
+            mapSize += sizeof(uint32) + sizeof(uint64)
+        if len(self._botStoragesMap) > 0:
+            # uint32 type + uint32 count + N × (uint64 key + uint64 peerId)
+            mapSize += sizeof(uint32) * 2 + len(self._botStoragesMap) * sizeof(uint64) * 2
+        if self._prefsKey:
+            mapSize += sizeof(uint32) + sizeof(uint64)
 
         mapData = td.Storage.EncryptedDescriptor(mapSize)
         stream = mapData.stream
@@ -394,10 +529,30 @@ class MapData(BaseObject):  # nocov
             stream.writeUInt32(lskType.lskSearchSuggestions)
             stream.writeUInt64(self._searchSuggestionsKey)
 
-        if self._webviewStorageTokenBots or self._webviewStorageTokenOther:
+        if not self._webviewStorageTokenBots.isEmpty() or not self._webviewStorageTokenOther.isEmpty():
             stream.writeUInt32(lskType.lskWebviewTokens)
-            stream.writeUInt64(self._webviewStorageTokenBots)
-            stream.writeUInt64(self._webviewStorageTokenOther)
+            stream << self._webviewStorageTokenBots
+            stream << self._webviewStorageTokenOther
+
+        # Новые ключи Telegram Desktop 5.x-6.x (источник: RobertAzovski)
+        if self._roundPlaceholder:
+            stream.writeUInt32(lskType.lskRoundPlaceholder)
+            stream.writeUInt64(self._roundPlaceholder)
+        if self._inlineBotsDownloads:
+            stream.writeUInt32(lskType.lskInlineBotsDownloads)
+            stream.writeUInt64(self._inlineBotsDownloads)
+        if self._mediaLastPlaybackPositions:
+            stream.writeUInt32(lskType.lskMediaLastPlaybackPositions)
+            stream.writeUInt64(self._mediaLastPlaybackPositions)
+        if len(self._botStoragesMap) > 0:
+            stream.writeUInt32(lskType.lskBotStorages)
+            stream.writeUInt32(len(self._botStoragesMap))
+            for peerId, fileKey in self._botStoragesMap.items():
+                stream.writeUInt64(fileKey)
+                stream.writeUInt64(PeerId(peerId).Serialize())
+        if self._prefsKey:
+            stream.writeUInt32(lskType.lskPrefs)
+            stream.writeUInt64(self._prefsKey)
 
         return mapData
 
@@ -488,14 +643,17 @@ class StorageAccount(BaseObject):  # nocov
         return self.__mapData
 
     def start(self, localKey: td.AuthKey) -> td.MTP.Config:
-        # Intended for internal usage only
-
+        # Intended for internal usage only.
+        #
+        # 1.3.0: previously this method skipped readMtpConfig() under
+        # ``kPerformanceMode`` and returned ``self.__config`` (a fresh,
+        # default-initialized MTP.Config). That dropped any MTP config that
+        # had been written by a previous save — a data-loss bug. Performance
+        # toggle should not change data semantics; it should only skip the
+        # expensive *localKey* derivation. Always read the config now.
         self.__localKey = localKey
         self.readMapWith(localKey)
-
-        return (
-            self.__config if self.owner.owner.kPerformanceMode else self.readMtpConfig()
-        )
+        return self.readMtpConfig()
 
     def readMtpData(self):
         # Intended for internal usage only
@@ -514,7 +672,7 @@ class StorageAccount(BaseObject):  # nocov
     def readMtpConfig(self) -> td.MTP.Config:
         # Intended for internal usage only
         Expects(
-            self.localKey != None,
+            self.localKey is not None,
             AccountAuthKeyNotFound("The localKey has not been initialized yet"),
         )
 
@@ -547,10 +705,10 @@ class StorageAccount(BaseObject):  # nocov
         # Intended for internal usage only
 
         Expects(
-            self.localKey != None,
+            self.localKey is not None,
             "localKey not found, have you initialized me correctly?",
         )
-        Expects(basePath != None and basePath != "", "basePath can't be empty")
+        Expects(basePath is not None and basePath != "", "basePath can't be empty")
 
         serialized = self.owner.MtpConfig.Serialize()
         size = td.Serialize.bytearraySize(serialized)
@@ -564,10 +722,10 @@ class StorageAccount(BaseObject):  # nocov
         # Intended for internal usage only
 
         Expects(
-            self.localKey != None,
+            self.localKey is not None,
             "localKey not found, have you initialized me correctly?",
         )
-        Expects(basePath != None and basePath != "", "basePath can't be empty")
+        Expects(basePath is not None and basePath != "", "basePath can't be empty")
 
         map = td.Storage.FileWriteDescriptor("map", basePath)
 
@@ -583,11 +741,11 @@ class StorageAccount(BaseObject):  # nocov
         # Intended for internal usage only
 
         Expects(
-            self.localKey != None,
+            self.localKey is not None,
             "localKey not found, have you initialized me correctly?",
         )
         Expects(
-            baseGlobalPath != None and baseGlobalPath != "",
+            baseGlobalPath is not None and baseGlobalPath != "",
             "baseGlobalPath can't be empty",
         )
 
@@ -606,11 +764,11 @@ class StorageAccount(BaseObject):  # nocov
         # Intended for internal usage only
 
         Expects(
-            baseGlobalPath != None and baseGlobalPath != "",
+            baseGlobalPath is not None and baseGlobalPath != "",
             "baseGlobalPath can't be empty",
         )
 
-        if keyFile != None and self.keyFile != keyFile:
+        if keyFile is not None and self.keyFile != keyFile:
             self.__keyFile = keyFile
             dataNameKey = td.Storage.ComputeDataNameKey(self.__keyFile)
         else:
@@ -621,9 +779,12 @@ class StorageAccount(BaseObject):  # nocov
         )
         self.writeMap(basePath)
 
-        if not self.owner.owner.kPerformanceMode:
-            self.writeMtpConfig(basePath)
-
+        # 1.3.0: writeMtpConfig is unconditional now (was skipped under
+        # ``kPerformanceMode``). Skipping the config write meant the next
+        # SaveTData round-trip lost any updated MTP config — a data-loss
+        # bug. Performance mode should only skip *localKey* derivation, not
+        # change which fields actually persist.
+        self.writeMtpConfig(basePath)
         self.writeMtpData(baseGlobalPath, dataNameKey)
 
 
@@ -704,7 +865,7 @@ class Account(BaseObject):
         self.__MainDcId = DcId(0)
 
         self.__basePath = td.Storage.GetAbsolutePath(basePath)
-        self.__keyFile = keyFile if (keyFile != None) else td.TDesktop.kDefaultKeyFile
+        self.__keyFile = keyFile if (keyFile is not None) else td.TDesktop.kDefaultKeyFile
 
         self.__mtpKeys: typing.List[td.AuthKey] = []
         self.__mtpKeysToDestroy: typing.List[td.AuthKey] = []
@@ -840,7 +1001,7 @@ class Account(BaseObject):
                 break
 
         Expects(
-            self.authKey != None,
+            self.authKey is not None,
             exception=TDataAuthKeyNotFound(
                 "Could not find the main authKey, are you sure the data is correct?"
             ),
@@ -873,6 +1034,22 @@ class Account(BaseObject):
                 QDataStreamFailed("Could not read keys count from mtp authorization."),
             )
 
+            # Phase 1.0.3 DoS guard: each AuthKey is int32 dcId + 256-byte key = 260 bytes.
+            # Refuse to allocate unbounded loop on attacker-controlled key_count.
+            pair_bytes = sizeof(int32) + td.AuthKey.kSize
+            try:
+                available = stream.bytesAvailable()
+            except AttributeError:
+                available = None
+            if available is not None and key_count > 0:
+                max_pairs = available // pair_bytes
+                if key_count > max_pairs:
+                    raise QDataStreamFailed(
+                        f"Corrupt mtp authorization: key_count={key_count} but only "
+                        f"{available} bytes available (max {max_pairs} keys). "
+                        f"Refusing unbounded loop (DoS guard)."
+                    )
+
             for i in range(key_count):
                 dcId = DcId(stream.readInt32())
                 keys.append(
@@ -891,7 +1068,7 @@ class Account(BaseObject):
                 break
 
         Expects(
-            self.__authKey != None,
+            self.__authKey is not None,
             exception=TDataAuthKeyNotFound(
                 "Could not find authKey, the data might has been corrupted"
             ),
@@ -909,8 +1086,10 @@ class Account(BaseObject):
         # Intended for internal usage only
         Expects(self.isLoaded(), "Account data not loaded yet")
 
-        def keysSize(list: typing.List[td.AuthKey]):
-            return 4 + len(list) * (4 + td.AuthKey.kSize)
+        # Phase 1.0.2: removed unused nested helper ``keysSize(list)`` here
+        # (Codex/Cursor consultation — never called from anywhere in the
+        # codebase). QByteArray grows on demand so size pre-calculation is
+        # unnecessary on the write side.
 
         def writeKeys(stream: QDataStream, keys: typing.List[td.AuthKey]):
 
@@ -962,12 +1141,12 @@ class Account(BaseObject):
         ```
         """
 
-        if basePath == None:
+        if basePath is None:
             basePath = self.basePath
 
         basePath = td.Storage.GetAbsolutePath(basePath)
 
-        if self.basePath == None:
+        if self.basePath is None:
             self.__basePath = basePath
 
         self.owner.SaveTData(basePath, passcode, keyFile)
@@ -1031,6 +1210,204 @@ class Account(BaseObject):
             self, session=session, flag=flag, api=api, password=password, **kwargs
         )
 
+    async def ToPyrogram(
+        self,
+        name: str = "opentele",
+        flag: Type[LoginFlag] = UseCurrentSession,
+        api: Union[Type[APIData], APIData] = API.TelegramDesktop,
+        password: str = None,
+        telethon_kwargs: dict = None,
+        **kwargs,
+    ):
+        """
+        Convert this account to a `pyrogram.Client`.
+
+        Pyrogram is an optional dependency — see `opentele.tl.pyrogram_bridge`.
+
+        ### Arguments:
+            name (`str`, default=`"opentele"`):
+                Pyrogram session name. With the default `in_memory=True` it is
+                only a label; pass `in_memory=False` to write `<name>.session`
+                in `workdir` — omit `workdir` and Pyrogram puts it next to the
+                entry script, not in the process CWD. An existing file of that
+                name raises `FileExistsError` unless you pass `overwrite=True`.
+
+            flag (`LoginFlag`, default=`UseCurrentSession`):
+                `UseCurrentSession` reuses this account's authorization.
+                `CreateNewSession` authorizes a brand new session over QR login
+                first (via the Telethon bridge) and converts *that* — use it
+                when the target API differs from the one that created `tdata`.
+
+            api (`APIData`, default=`API.TelegramDesktop`):
+                Which API to use. Read more `[here](API)`.
+
+            password (`str`, default=`None`):
+                Two-step verification password, if `CreateNewSession` needs it.
+
+            telethon_kwargs (`dict`, default=`None`):
+                Extra arguments for the *internal* `TelegramClient` that
+                performs the `CreateNewSession` QR login. `**kwargs` reach
+                `pyrogram.Client` only, and the two libraries disagree on the
+                shape of `proxy` (Telethon takes a tuple, Pyrogram a dict), so
+                the connection settings for the login leg are passed here.
+                Without them the QR authorization goes out over a direct
+                connection even when the Pyrogram client is proxied.
+                Ignored for `UseCurrentSession`, which never connects.
+
+        ### Returns:
+            `pyrogram.Client`: a disconnected client carrying this session. Its
+            `app_version` is re-pointed at Pyrogram's MTProto layer when `api`
+            is a Telegram Desktop fingerprint — Pyrogram and Telethon ship
+            different schemas, so they announce different layers. Pass
+            `align_layer=False` to keep `api.app_version` verbatim.
+
+        ### Examples:
+        ```python
+            tdesk = TDesktop("tdata")
+            client = await tdesk.mainAccount.ToPyrogram()
+            async with client:
+                print(await client.get_me())
+        ```
+        """
+        Expects(
+            (flag == CreateNewSession) or (flag == UseCurrentSession),
+            LoginFlagInvalid("LoginFlag invalid"),
+        )
+        Expects(
+            self.isLoaded(),
+            TDAccountNotLoaded(
+                "I'm not loaded yet, are you sure you're using me correctly?"
+            ),
+        )
+
+        if flag == CreateNewSession:
+            # Without this the collision surfaces as a bare "got multiple
+            # values for keyword argument" from a call the caller never made.
+            reserved = {"session", "flag", "api", "password"} & set(telethon_kwargs or {})
+            if reserved:
+                raise ValueError(
+                    f"telethon_kwargs may not set {sorted(reserved)}: ToPyrogram() "
+                    "fixes those for the login leg. Pass `api` / `password` as "
+                    "arguments of ToPyrogram() itself."
+                )
+            # Reuse the Telethon path — it already knows how to QR-authorize a
+            # new session against a different API — then convert its result.
+            telethonClient = await self.ToTelethon(
+                session=None,
+                flag=CreateNewSession,
+                api=api,
+                password=password,
+                **(telethon_kwargs or {}),
+            )
+            await telethonClient.connect()
+            try:
+                dcId = int(telethonClient.session.dc_id)
+                authKey = telethonClient.session.auth_key.key
+                userId = telethonClient.UserId
+                if userId is None:
+                    await telethonClient.get_me()
+                    userId = telethonClient.UserId
+            finally:
+                await telethonClient.disconnect()
+        else:
+            dcId = int(self.MainDcId)
+            authKey = self.authKey.key
+            userId = self.UserId
+
+        # `api` may be an APIData instance or the class itself — every field
+        # used here is readable either way, exactly like the Telethon bridge
+        # does it. It is NOT randomized via Generate(): a conversion must not
+        # silently change the device fingerprint the caller asked for.
+        return await pyro.make_client(
+            api,
+            dc_id=dcId,
+            auth_key=authKey,
+            user_id=userId,
+            name=name,
+            **kwargs,
+        )
+
+    @staticmethod
+    async def FromPyrogram(
+        pyrogramClient,
+        flag: Type[LoginFlag] = UseCurrentSession,
+        api: Union[Type[APIData], APIData] = API.TelegramDesktop,
+        password: str = None,
+        owner: td.TDesktop = None,
+    ):
+        """
+        Create an `Account` from a `pyrogram.Client`.
+
+        Only `UseCurrentSession` is supported: Pyrogram has no equivalent of
+        Telethon's `QRLoginToNewClient()` here, so there is no way to mint a
+        second session from the first without reimplementing QR login.
+
+        ### Arguments:
+            pyrogramClient (`pyrogram.Client`):
+                The client to convert. It does not need to be connected — the
+                credentials are read from its storage.
+
+            flag (`LoginFlag`, default=`UseCurrentSession`):
+                Must be `UseCurrentSession`.
+
+            api (`APIData`, default=`API.TelegramDesktop`):
+                Which API to use. Read more `[here](API)`.
+
+            owner (`TDesktop`, default=`None`):
+                The `TDesktop` to attach this account to. A new one is created
+                when omitted.
+        """
+        Expects(
+            flag == UseCurrentSession,
+            LoginFlagInvalid(
+                "FromPyrogram() only supports UseCurrentSession — Pyrogram has no "
+                "QR-login-to-new-client path here. Convert to Telethon first if you "
+                "need CreateNewSession."
+            ),
+        )
+
+        credentials = await pyro.read_credentials(pyrogramClient)
+        dc_id, auth_key, user_id = (
+            credentials.dc_id,
+            credentials.auth_key,
+            credentials.user_id,
+        )
+
+        if user_id is None:
+            # An authorized session always has a user_id in storage; if it is
+            # missing, ask the server rather than writing a headless tdata.
+            async with pyrogramClient:
+                me = await pyrogramClient.get_me()
+            user_id = me.id
+
+        dcId = DcId(dc_id)
+        authKey = td.AuthKey(auth_key, td.AuthKeyType.ReadFromFile, dcId)
+
+        if owner is not None:
+            Expects(
+                owner.accountsCount < td.TDesktop.kMaxAccounts,
+                exception=MaxAccountLimit(
+                    f"You can't have more than {td.TDesktop.kMaxAccounts} accounts in one TDesktop client.\n"
+                    "Please create another instance of TDesktop or use Account.FromPyrogram() to create an Account() independently"
+                ),
+            )
+            newAccount = Account(
+                owner=owner,
+                basePath=owner.basePath,
+                api=api,
+                keyFile=owner.keyFile,
+                index=owner.accountsCount,
+            )
+            newAccount._setMtpAuthorizationCustom(dcId, user_id, [authKey])  # type: ignore
+            owner._addSingleAccount(newAccount)
+        else:
+            newOwner = td.TDesktop()
+            newAccount = Account(owner=newOwner, api=api, index=0)
+            newAccount._setMtpAuthorizationCustom(dcId, user_id, [authKey])  # type: ignore
+            newOwner._addSingleAccount(newAccount)
+
+        return newAccount
+
     @staticmethod
     async def FromTelethon(
         telethonClient: tl.TelegramClient,
@@ -1038,7 +1415,11 @@ class Account(BaseObject):
         api: Union[Type[APIData], APIData] = API.TelegramDesktop,
         password: str = None,
         owner: td.TDesktop = None,
+        **kwargs,
     ):
+        """Phase 3: ``**kwargs`` forwarded to ``QRLoginToNewClient`` so callers
+        can pass Telethon-specific options (proxy, connection, timeout etc.)
+        without modifying the bridge layer. Source: snakechilds-style fix."""
 
         Expects(
             (flag == CreateNewSession) or (flag == UseCurrentSession),
@@ -1061,7 +1442,9 @@ class Account(BaseObject):
                     ),
                 )
 
-            copy = await telethonClient.QRLoginToNewClient(api=api, password=password)
+            copy = await telethonClient.QRLoginToNewClient(
+                api=api, password=password, **kwargs
+            )
             await copy.get_me()
         else:
             copy = telethonClient
@@ -1072,19 +1455,19 @@ class Account(BaseObject):
         userId = copy.UserId
         authKey = td.AuthKey(authKey, td.AuthKeyType.ReadFromFile, dcId)
         
-        if userId == None:
+        if userId is None:
             await copy.connect()
             await copy.get_me()
             userId = copy.UserId
             
         newAccount = None
 
-        if owner != None:
+        if owner is not None:
 
             Expects(
                 owner.accountsCount < td.TDesktop.kMaxAccounts,
                 exception=MaxAccountLimit(
-                    "You can't have more than 3 accounts in one TDesktop clent.\n"
+                    f"You can't have more than {td.TDesktop.kMaxAccounts} accounts in one TDesktop client.\n"
                     "Please create another instance of TDesktop or use Account.FromTelethon() to create an Account() independently"
                 ),
             )

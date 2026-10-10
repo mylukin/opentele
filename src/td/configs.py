@@ -1,45 +1,54 @@
 from __future__ import annotations
 
-from enum import IntEnum
-
-from ..exception import *
-from ..utils import *
-from ..api import *
-from .. import tl
-
-from typing import (
-    Union,
-    Callable,
-    TypeVar,
-    Type,
-    Optional,
-    List,
-    Dict,
-    Any,
-    TYPE_CHECKING,
+import asyncio
+from ctypes import (
+    c_int32 as int32,
+)
+from ctypes import (
+    c_int64 as int64,
+)
+from ctypes import (
+    c_short as short,
+)
+from ctypes import (
+    c_uint32 as uint32,
+)
+from ctypes import (
+    c_uint64 as uint64,
+)
+from ctypes import (
+    c_ushort as ushort,
 )
 from ctypes import (
     sizeof,
-    c_int32 as int32,
-    c_int64 as int64,
-    c_uint32 as uint32,
-    c_uint64 as uint64,
-    c_short as short,
-    c_ushort as ushort,
 )
-from PyQt5.QtCore import (
+from enum import IntEnum
+from types import FunctionType
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Type,
+    TypeVar,
+    Union,
+)
+
+from .. import tl
+from ..api import *
+from ..exception import *
+from ..utils import *
+from .qdatastream import (
+    QBuffer,
     QByteArray,
     QDataStream,
-    QBuffer,
-    QIODevice,
-    QSysInfo,
     QDir,
     QFile,
+    QIODevice,
+    QSysInfo,
 )
-from types import FunctionType
-
-import asyncio
-
 
 APP_VERSION = 3004000
 TDF_MAGIC = b"TDF$"
@@ -336,6 +345,12 @@ class lskType(int):  # nocov
     lskCustomEmojiKeys = 0x17  # no data
     lskSearchSuggestions = 0x18  # no data
     lskWebviewTokens = 0x19  # data: QByteArray bots, QByteArray other
+    # Новые ключи для Telegram Desktop 5.x-6.x (источник: RobertAzovski/opentele + Phase 1.5 review)
+    lskRoundPlaceholder = 0x1A  # no data
+    lskInlineBotsDownloads = 0x1B  # no data
+    lskMediaLastPlaybackPositions = 0x1C  # no data
+    lskBotStorages = 0x1D  # data: PeerId botId (map: count + pairs)
+    lskPrefs = 0x1E  # no data — добавлен в Phase 1.5 после ревью трёх AI
 
 
 class BotTrustFlag(int):  # nocov

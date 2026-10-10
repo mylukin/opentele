@@ -1,21 +1,27 @@
 from __future__ import annotations
 
-from .configs import *
-from . import shared as tl
+import json
+import logging
+import warnings
+from pathlib import Path
+from typing import Awaitable
 
+from telethon import (
+    types,  # noqa: F401  # used as namespace via configs star-import; explicit defends against shadowing by stdlib `types` in some envs (Windows)
+)
 from telethon.errors.rpcerrorlist import (
-    PasswordHashInvalidError,
     AuthTokenAlreadyAcceptedError,
     AuthTokenExpiredError,
     AuthTokenInvalidError,
     FreshResetAuthorisationForbiddenError,
     HashInvalidError,
+    PasswordHashInvalidError,
 )
 from telethon.tl.types import TypeInputClientProxy, TypeJSONValue
 from telethon.tl.types.auth import LoginTokenMigrateTo
-import logging
-import warnings
-from typing import Awaitable
+
+from . import shared as tl
+from .configs import *
 
 
 @extend_override_class
@@ -36,7 +42,7 @@ class CustomInitConnectionRequest(functions.InitConnectionRequest):
 
         # our hook pass pid as device_model
         data = APIData.findData(device_model)  # type: ignore
-        if data != None:
+        if data is not None:
             self.api_id = data.api_id
             self.device_model = data.device_model if data.device_model else device_model
             self.system_version = (
@@ -312,7 +318,7 @@ class TelegramClient(telethon.TelegramClient, BaseObject):
     ):
         # Use API.TelegramDesktop by default.
 
-        if api != None:
+        if api is not None:
             if isinstance(api, APIData) or (
                 isinstance(api, type)
                 and APIData.__subclasscheck__(api)
@@ -325,16 +331,44 @@ class TelegramClient(telethon.TelegramClient, BaseObject):
                 kwargs["device_model"] = api.pid  # type: ignore
 
             else:
-                if (
-                    (isinstance(api, int) or isinstance(api, str))
-                    and api_id
-                    and isinstance(api_id, str)
-                ):
-                    api_id = api
-                    api_hash = api_id
+                # `api` is not an APIData, so the caller used Telethon's own
+                # signature, where slot 2 is `api_id`. Un-shift the credentials.
+                #
+                # Telethon makes everything after `api_hash` keyword-only, so
+                # the only two shapes that can legitimately land here are the
+                # three-positional call and the id-positional/hash-keyword mix.
+                if isinstance(api, (int, str)):
+                    if api_id and isinstance(api_id, str) and api_hash is None:
+                        # TelegramClient(session, api_id, api_hash)
+                        #
+                        # Swap in ONE statement — upstream did `api_id = api`
+                        # followed by `api_hash = api_id`, which reads the name
+                        # the first line just overwrote and silently set
+                        # api_hash to the api_id. The client looked fine but
+                        # failed every login RPC with ApiIdInvalidError
+                        # (api_hash is not sent by initConnection, so an
+                        # already-authorized session masked the bug).
+                        api_id, api_hash = api, api_id
+                    elif not api_id and api_hash is not None:
+                        # TelegramClient(session, api_id, api_hash="...")
+                        # Only the id was shifted; the hash already landed in
+                        # its own parameter.
+                        api_id = api
+                    elif api_id and api_hash is not None:
+                        # TelegramClient(session, <int>, x, y) — there is no
+                        # reading of this that keeps all three values, and
+                        # dropping one silently would hand Telegram the wrong
+                        # credentials. Fail loudly instead.
+                        raise TypeError(
+                            "TelegramClient: ambiguous positional arguments. "
+                            "Slot 2 is `api` (an APIData subclass/instance); "
+                            f"got {type(api).__name__}. Use "
+                            "TelegramClient(session, api_id, api_hash) or "
+                            "TelegramClient(session, api=API.TelegramDesktop)."
+                        )
                 api = None
 
-        elif api_id == 0 and api_hash == None:
+        elif api_id == 0 and api_hash is None:
             api = API.TelegramDesktop
             api_id = api.api_id
             api_hash = api.api_hash
@@ -374,7 +408,7 @@ class TelegramClient(telethon.TelegramClient, BaseObject):
 
         return (
             next((auth for auth in results.authorizations if auth.current), None)
-            if results != None
+            if results is not None
             else None
         )
 
@@ -407,7 +441,7 @@ class TelegramClient(telethon.TelegramClient, BaseObject):
         Terminate all other sessions.
         """
         sessions = await self.GetSessions()
-        if sessions == None:
+        if sessions is None:
             return False
 
         for ss in sessions.authorizations:
@@ -447,7 +481,7 @@ class TelegramClient(telethon.TelegramClient, BaseObject):
         ```
 
         """
-        if (sessions == None) or not isinstance(sessions, types.account.Authorizations):
+        if (sessions is None) or not isinstance(sessions, types.account.Authorizations):
             sessions = await self.GetSessions()
 
         assert sessions
@@ -477,7 +511,7 @@ class TelegramClient(telethon.TelegramClient, BaseObject):
         """
         auth = await self.GetCurrentSession()
 
-        return False if auth == None else bool(auth.official_app)
+        return False if auth is None else bool(auth.official_app)
 
     @typing.overload
     async def QRLoginToNewClient(
@@ -569,7 +603,7 @@ class TelegramClient(telethon.TelegramClient, BaseObject):
         if await newClient.is_user_authorized():  # nocov
 
             currentAuth = await newClient.GetCurrentSession()
-            if currentAuth != None:
+            if currentAuth is not None:
 
                 if currentAuth.api_id == api.api_id:
                     warnings.warn(
@@ -669,7 +703,7 @@ class TelegramClient(telethon.TelegramClient, BaseObject):
                 # requires an 2fa password
 
                 Expects(
-                    password != None,
+                    password is not None,
                     NoPasswordProvided(
                         "Two-step verification is enabled for this account.\n"
                         "You need to provide the `password` to argument"
@@ -746,6 +780,102 @@ class TelegramClient(telethon.TelegramClient, BaseObject):
         return await td.TDesktop.FromTelethon(
             self, flag=flag, api=api, password=password
         )
+
+    @staticmethod
+    async def FromBundle(
+        json_path: Union[str, Path],
+        proxy: Union[tuple, dict] = None,
+        **kwargs,
+    ) -> TelegramClient:
+        """Create an authorized TelegramClient from a JSON bundle file.
+
+        A bundle is a JSON file containing ``app_id`` / ``app_hash`` credentials
+        paired with a Telethon ``.session`` SQLite file of the same base name in
+        the same directory.  The JSON may also embed the session directly as a
+        Telethon string session under any of the common key names
+        (``string_session``, ``session_string``, ``telethon_string``,
+        ``telethon_session``).
+
+        ### Arguments:
+            json_path (`str` | `Path`):
+                Path to the bundle ``.json`` file.
+
+            proxy (`tuple` | `dict`, default=`None`):
+                Telethon-compatible proxy passed straight to `TelegramClient`.
+
+            **kwargs:
+                Extra keyword arguments forwarded to `TelegramClient.__init__`.
+
+        ### Returns:
+            A connected (but not yet disconnected) `TelegramClient`.  The caller
+            is responsible for calling ``.disconnect()`` when done.
+
+        ### Raises:
+            `FileNotFoundError`: If the JSON file does not exist.
+            `ValueError`: If ``app_id`` or ``app_hash`` are missing in the JSON.
+
+        ### Examples:
+        ```python
+            client = await TelegramClient.FromBundle(
+                "accounts/myaccount/myaccount.json",
+                proxy=(socks.SOCKS5, "proxy.example.com", 1080),
+            )
+            await client.PrintSessions()
+            await client.disconnect()
+        ```
+        """
+        from telethon.sessions import StringSession
+
+        json_path = Path(json_path)
+        if not json_path.exists():
+            raise FileNotFoundError(f"Bundle JSON not found: {json_path}")
+
+        with open(json_path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+
+        api_id = int(cfg.get("app_id") or cfg.get("api_id") or 0)
+        api_hash = str(cfg.get("app_hash") or "")
+        if not api_id or not api_hash:
+            raise ValueError(f"Bundle JSON missing app_id/app_hash: {json_path}")
+
+        # Resolve string session (multiple common key names)
+        string_session: str = ""
+        for key in ("string_session", "session_string", "telethon_string", "telethon_session"):
+            if cfg.get(key):
+                string_session = cfg[key]
+                break
+
+        if string_session:
+            # Keyword args on purpose: slot 2 of our __init__ is `api`, not
+            # `api_id`, so a positional call would shift the credentials.
+            client: TelegramClient = TelegramClient(
+                StringSession(string_session),
+                api_id=api_id,
+                api_hash=api_hash,
+                proxy=proxy,
+                **kwargs,
+            )
+        else:
+            session_file = cfg.get("session_file") or json_path.stem
+            session_path = json_path.parent / (Path(session_file).stem + ".session")
+            if not session_path.exists():
+                raise FileNotFoundError(
+                    f"Bundle .session file not found: {session_path}"
+                )
+            # Pass path without extension — Telethon appends .session itself
+            client = TelegramClient(
+                str(session_path.with_suffix("")),
+                api_id=api_id,
+                api_hash=api_hash,
+                proxy=proxy,
+                **kwargs,
+            )
+
+        await client.connect()
+        if not await client.is_user_authorized():
+            await client.disconnect()
+            raise TelethonUnauthorized("Bundle session is not authorized or has been revoked")
+        return client
 
     @typing.overload
     @staticmethod

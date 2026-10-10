@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-
-from .configs import *
-from . import shared as td
-
 import logging
+
 from telethon.network.connection.connection import Connection
 from telethon.network.connection.tcpfull import ConnectionTcpFull
 from telethon.sessions.abstract import Session
+
+from . import shared as td
+from .configs import *
 
 # if TYPE_CHECKING:
 #     from . import *
@@ -17,7 +17,7 @@ class TDesktop(BaseObject):
     """
     Telegram Desktop client.
     
-    A client can have multiple accounts, up to 3 - according to official Telegram Desktop client.
+    A client can have multiple accounts, up to 6 (for Premium accounts) - according to official Telegram Desktop client.
 
     ### Attributes:
         api (`API`):
@@ -125,9 +125,9 @@ class TDesktop(BaseObject):
         """
         self.__accounts: typing.List[td.Account] = []
         self.__basePath = basePath
-        self.__keyFile = keyFile if (keyFile != None) else TDesktop.kDefaultKeyFile
-        self.__passcode = passcode if (passcode != None) else str("")
-        self.__passcodeBytes = self.__passcode.encode("ascii")
+        self.__keyFile = keyFile if (keyFile is not None) else TDesktop.kDefaultKeyFile
+        self.__passcode = passcode if (passcode is not None) else str("")
+        self.__passcodeBytes = self.__passcode.encode("utf-8")
         self.__mainAccount: Optional[td.Account] = None
         self.__active_index = -1
         self.__passcodeKey = None
@@ -136,7 +136,7 @@ class TDesktop(BaseObject):
         self.__isLoaded = False
         self.__api = api.copy()
 
-        if basePath != None:
+        if basePath is not None:
             self.__basePath = td.Storage.GetAbsolutePath(basePath)
             self.LoadTData()
 
@@ -187,17 +187,17 @@ class TDesktop(BaseObject):
         ```
         """
 
-        if basePath == None:
+        if basePath is None:
             basePath = self.basePath
 
-        Expects(basePath != None and basePath != "", "No folder provided to load tdata")
+        Expects(basePath is not None and basePath != "", "No folder provided to load tdata")
 
-        if keyFile != None and self.__keyFile != keyFile:
+        if keyFile is not None and self.__keyFile != keyFile:
             self.__keyFile = keyFile
 
-        if passcode != None and self.__passcode != passcode:
+        if passcode is not None and self.__passcode != passcode:
             self.__passcode = passcode
-            self.__passcodeBytes = passcode.encode("ascii")
+            self.__passcodeBytes = passcode.encode("utf-8")
 
         try:
             self.__loadFromTData()
@@ -251,18 +251,18 @@ class TDesktop(BaseObject):
             tdesk.SaveTData("new_tdata")
         ```
         """
-        if basePath == None:
+        if basePath is None:
             basePath = self.basePath
 
         self.__keyFile = (
-            keyFile if (keyFile != None and self.keyFile != keyFile) else self.keyFile
+            keyFile if (keyFile is not None and self.keyFile != keyFile) else self.keyFile
         )
 
-        Expects(basePath != None and basePath != "", "No folder provided to save tdata")
+        Expects(basePath is not None and basePath != "", "No folder provided to save tdata")
 
-        if passcode != None and self.__passcode != passcode:
+        if passcode is not None and self.__passcode != passcode:
             self.__passcode = passcode
-            self.__passcodeBytes = passcode.encode("ascii")
+            self.__passcodeBytes = passcode.encode("utf-8")
             self.__isLoaded = False  # to generate new localKey
 
         if not self.isLoaded():
@@ -285,7 +285,7 @@ class TDesktop(BaseObject):
         # Intended for internal usage only
 
         Expects(len(self.accounts) > 0)
-        Expects(basePath != None and basePath != "", "No folder provided to save tdata")
+        Expects(basePath is not None and basePath != "", "No folder provided to save tdata")
 
         for account in self.accounts:
             account._writeData(basePath, keyFile)
@@ -390,14 +390,14 @@ class TDesktop(BaseObject):
 
         self.__accounts.append(account)
 
-        if self.mainAccount == None:
+        if self.mainAccount is None:
             self.__mainAccount = self.__accounts[0]
 
     def __loadFromTData(self) -> None:
         # Intended for internal usage only
 
         Expects(
-            self.basePath != None and self.basePath != "",
+            self.basePath is not None and self.basePath != "",
             "No folder provided to load tdata",
         )
 
@@ -430,6 +430,27 @@ class TDesktop(BaseObject):
         count = info.stream.readInt32()
 
         Expects(count > 0, "accountsCount is zero, the data might has been corrupted")
+
+        # Phase 1.0.3 DoS guard: account-list count is double-bounded by
+        # (a) TDesktop's hard cap kMaxAccounts and
+        # (b) the actual bytes available in the decrypted info stream
+        #     (each entry is a single int32 index = 4 bytes).
+        # Without this, a malformed key_data blob with count=0xFFFFFFFF would
+        # spin readInt32() ~4B times before the trailing status check trips.
+        try:
+            info_bytes_available = info.stream.bytesAvailable()
+        except AttributeError:
+            info_bytes_available = None
+        max_count = TDesktop.kMaxAccounts
+        if info_bytes_available is not None:
+            max_count = min(max_count, info_bytes_available // 4)
+        if count > max_count:
+            Expects(
+                False,
+                f"Corrupt key_data: accountsCount={count} exceeds hard cap "
+                f"max_count={max_count} (kMaxAccounts={TDesktop.kMaxAccounts}, "
+                f"available={info_bytes_available} bytes). Refusing unbounded loop.",
+            )
 
         for i in range(count):
             index = info.stream.readInt32()
@@ -566,12 +587,114 @@ class TDesktop(BaseObject):
             **kwargs
         )
 
+    async def ToPyrogram(
+        self,
+        name: str = "opentele",
+        flag: Type[LoginFlag] = UseCurrentSession,
+        api: Union[Type[APIData], APIData] = API.TelegramDesktop,
+        password: str = None,
+        telethon_kwargs: dict = None,
+        **kwargs,
+    ):
+        """
+        Convert this `TDesktop`'s main account to a `pyrogram.Client`.
+
+        Pyrogram is an optional dependency: install `opentele-ng[pyrogram]`.
+
+        ### Arguments:
+            name (`str`, default=`"opentele"`):
+                Pyrogram session name.
+
+            flag (`LoginFlag`, default=`UseCurrentSession`):
+                The login flag. Read more `[here](LoginFlag)`.
+
+            api (`APIData`, default=`API.TelegramDesktop`):
+                Which API to use. Read more `[here](API)`.
+
+            password (`str`, default=`None`):
+                Two-step verification password if needed.
+
+            telethon_kwargs (`dict`, default=`None`):
+                Arguments for the internal `TelegramClient` that performs the
+                `CreateNewSession` QR login — `**kwargs` go to
+                `pyrogram.Client` only. See `Account.ToPyrogram()`.
+
+        ### Examples:
+        ```python
+            tdesk = TDesktop("tdata")
+            client = await tdesk.ToPyrogram()
+            async with client:
+                print(await client.get_me())
+        ```
+        """
+        Expects(
+            self.isLoaded(),
+            TDesktopNotLoaded("You need to load accounts from a tdata folder first"),
+        )
+        Expects(
+            self.accountsCount > 0,
+            TDesktopHasNoAccount("There is no account in this instance of TDesktop"),
+        )
+        assert self.mainAccount
+
+        return await self.mainAccount.ToPyrogram(
+            name=name,
+            flag=flag,
+            api=api,
+            password=password,
+            telethon_kwargs=telethon_kwargs,
+            **kwargs,
+        )
+
+    @staticmethod
+    async def FromPyrogram(
+        pyrogramClient,
+        flag: Type[LoginFlag] = UseCurrentSession,
+        api: Union[Type[APIData], APIData] = API.TelegramDesktop,
+        password: str = None,
+    ) -> TDesktop:
+        """
+        Create an instance of `TDesktop` from a `pyrogram.Client`.
+
+        Only `UseCurrentSession` is supported — see `Account.FromPyrogram()`.
+
+        ### Arguments:
+            pyrogramClient (`pyrogram.Client`):
+                The client you want to convert from.
+
+            flag (`LoginFlag`, default=`UseCurrentSession`):
+                The login flag. Read more `[here](LoginFlag)`.
+
+            api (`APIData`, default=`API.TelegramDesktop`):
+                Which API to use. Read more `[here](API)`.
+
+            password (`str`, default=`None`):
+                Two-step verification password if needed.
+
+        ### Examples:
+            Save a pyrogram session to tdata:
+        ```python
+            client = Client("my_account", api_id=..., api_hash=...)
+            tdesk = await TDesktop.FromPyrogram(client)
+            tdesk.SaveTData("new_tdata")
+        ```
+        """
+        _self = TDesktop()
+        _self.__generateLocalKey()
+
+        await td.Account.FromPyrogram(
+            pyrogramClient, flag=flag, api=api, password=password, owner=_self
+        )
+
+        return _self
+
     @staticmethod
     async def FromTelethon(
         telethonClient: tl.TelegramClient,
         flag: Type[LoginFlag] = CreateNewSession,
         api: Union[Type[APIData], APIData] = API.TelegramDesktop,
         password: str = None,
+        **kwargs,
     ) -> TDesktop:
         """
         Create an instance of `TDesktop` from `TelegramClient`.
@@ -616,7 +739,12 @@ class TDesktop(BaseObject):
         _self.__generateLocalKey()
 
         await td.Account.FromTelethon(
-            telethonClient, flag=flag, api=api, password=password, owner=_self
+            telethonClient,
+            flag=flag,
+            api=api,
+            password=password,
+            owner=_self,
+            **kwargs,
         )
 
         return _self
@@ -625,28 +753,54 @@ class TDesktop(BaseObject):
     def PerformanceMode(cls, enabled: bool = True):
         """
         Enable or disable performance mode. See `kPerformanceMode`.
-        It is enabled by default.
+
+        **Since 1.3.0 performance mode is OFF by default** because it produces
+        tdata encrypted with a hard-coded ``localKey`` — i.e. effectively
+        unencrypted (anyone with the bytes can decrypt). Real localKey
+        derivation is now used unless the caller explicitly opts in.
+
+        Enabling performance mode emits a ``UserWarning`` once per process.
 
         ### Arguments:
             enabled (`bool`, default=`True`):
                 Either enable or disable performance mode.
-
         """
+        if enabled and not cls.kPerformanceMode:
+            import warnings
+            warnings.warn(
+                "TDesktop.PerformanceMode(True): the resulting tdata uses a "
+                "hard-coded localKey (≈ no encryption). Only safe for "
+                "throwaway / test data. See SECURITY.md.",
+                UserWarning,
+                stacklevel=2,
+            )
         cls.kPerformanceMode = enabled
 
-    kMaxAccounts: int = int(3)
-    """The maximum amount of accounts a client can have"""
+    kMaxAccounts: int = int(6)
+    """The maximum amount of accounts a client can have.
+
+    Phase 3: bumped from upstream's 3 to 6, matching Telegram Desktop's
+    ``kPremiumMaxAccounts`` (``main_domain.h`` in tdesktop source).
+    snakechilds/opentele-nuitka used 100, but TDesktop itself caps at 6 —
+    raising further has no real-world effect on the Telegram client side.
+    """
 
     kDefaultKeyFile: str = "data"
     """See `TDesktop.keyFile`"""
 
-    kPerformanceMode: bool = True
+    kPerformanceMode: bool = False
     """
-    When enabled, `SaveTData()` will be 5000x faster.
-    - What it does is using a constant `localKey` rather than generating it everytime when saving tdata.
-    - The average time for generating `localKey` is about `250` to `350` ms, depend on your CPU.
-    - When in performance mode, the average time to generate `localKey` is `0.0628` ms. Which is 5000x faster
-    - Of course this comes with a catch, your `tdata files` will always use a same constant `localKey`. Basicly no protection at all, but who cares?
+    When enabled, `SaveTData()` skips real ``localKey`` derivation and uses
+    a hard-coded key instead. ~5000× faster, but the resulting tdata is
+    effectively unencrypted — anyone with the bytes can read it.
+
+    **Default since 1.3.0: ``False``** (was ``True`` in 1.2.x and earlier
+    upstream releases). Set explicitly via ``TDesktop.PerformanceMode(True)``
+    if you understand the trade-off; that call now emits ``UserWarning``.
+
+    - The average time for generating real `localKey` is about `250` to `350` ms, depend on your CPU.
+    - When in performance mode, the average time to generate `localKey` is `0.0628` ms.
+    - In performance mode the produced tdata uses a constant `localKey`. Treat it as **unencrypted**.
     
     ### Notes:
         Note: Performance mode will be disabled if `passcode` is set.

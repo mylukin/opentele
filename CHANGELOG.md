@@ -1,6 +1,970 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Docker base image digest refreshed: `python:3.14-slim@sha256:a7185a8e…` →
+  `sha256:c3e521df…` (Python 3.14.8) in `Dockerfile`, `Dockerfile.test` and
+  `scripts/publish.sh`. Test image: 380 passed, 3 skipped; runtime image
+  `--help`/`--version` OK.
+
+## [1.4.2] - 2026-10-04
+
+### Fixed
+
+- CLI `convert` now awaits every awaitable returned by `disconnect()`, including
+  Telethon's shielded Future, before reporting success or publishing the file.
+- CLI `convert --force` creates a fresh SQLite session and atomically replaces
+  the destination after conversion succeeds. It no longer inherits entities,
+  update state, sent-file cache or takeout ID from the previous account, nor
+  returns an existing account's authorized session during QR login. Failed
+  conversions preserve the old destination and remove temporary files. Without
+  `--force`, an output created while conversion runs is preserved too.
+  Filesystems without hard links use exclusive creation and binary copying,
+  with partial-output cleanup on write failure.
+- Python 3.14+ requires Telethon 1.43 or newer: older versions can raise
+  `RuntimeError: There is no current event loop` during synchronous client
+  construction. Python 3.10–3.13 retain the 1.36 minimum.
+
+### Changed
+
+- GitHub Actions refreshed from official stable releases and pinned to commit
+  SHAs, including checkout/setup, artifacts, CodeQL, Docker, Pages, attestations
+  and PyPI publishing. JavaScript actions use Node.js 24 explicitly.
+- CI checks a real wheel with the minimum Telethon and tgcrypto dependencies on
+  Python 3.10 and 3.14, in addition to the regular latest-dependency matrix.
+
+## [1.4.1] - 2026-10-04
+
+### Added
+
+- Monthly fork watch also checks official stable Telegram Desktop releases
+  against the local version/layer table and Telethon releases against the Docker
+  lock. Release drift opens a report even when forks are quiet; failed checks
+  are reported for review instead of being treated as current.
+
+### Changed
+
+- Docker now locks Telethon 1.45.0 (MTProto layer 229), with SHA-256 hashes from
+  PyPI. The dependency range remains `telethon>=1.36,<2`.
+- Backfilled stable Desktop 7.0.9, 7.1.0–7.1.5, 7.2.5 and 7.2.7 from official
+  releases. The latest stable remains 7.2.9; 7.2.6 and 7.2.10 are prereleases
+  and stay excluded. Tagged schemas confirm 7.0.9 uses layer 228 and the
+  backfilled 7.1/7.2 releases use 229.
+- tdata compatibility documentation is now checked against the 7.2.9 source:
+  account-map blocks, MTP.Config and DcOptions wire formats remain unchanged
+  from 7.0.9. This is a source comparison, not a new live-login test.
+
+- **The API-reference links in `docs/examples/` are now labelled as upstream's.**
+  Eleven reference-style links across `convert-tdata-to-telethon.md`,
+  `convert-telethon-to-tdata.md` and `using-official-apis.md` resolve to
+  `opentele.readthedocs.io`, which is **thedemons/opentele**'s generated
+  reference, last built in 2022. They were left pointing there — this fork has
+  no API reference of its own, and the equivalent paths under
+  `stufently.github.io/opentele/` were requested and return 404, so rewriting
+  them would have traded someone else's working documentation for our own broken
+  links. Instead each of the three pages now carries a note saying whose
+  documentation it is, that class and method signatures still apply because the
+  names are unchanged, and where the fork's own changes are recorded. All three
+  upstream targets were re-checked and return 200. An `opentele-ng` API
+  reference remains the real fix; a 2022-era copy of the same generated pages
+  already sits unpublished in `docs-github/documentation/`.
+- **Discoverability: repository metadata and the README now name the PyPI
+  package.** The repo is `stufently/opentele`, the package is `opentele-ng` —
+  anyone searching GitHub for the name they typed into `pip install` found
+  nothing. Three fixes, no code touched: (1) twelve GitHub topics added
+  (`telegram`, `telethon`, `tdata`, `mtproto`, `python`, `telegram-desktop`,
+  `pyrogram`, `telegram-api`, `telegram-client`, `opentele`, `opentele-ng`,
+  `session-converter`) — GitHub accepts topics on a fork, they just do not
+  surface in topic listings while the fork flag is set; (2) the repo description
+  rewritten to lead with `opentele-ng` and the install command (it was still the
+  description inherited from upstream, which mentioned neither this fork, nor
+  the package name, nor the dropped Qt dependency); (3) the repo homepage moved
+  from `opentele.readthedocs.io` to
+  <https://stufently.github.io/opentele/>. That readthedocs project belongs to
+  **thedemons** and documents upstream — the link under this repo's title was
+  sending every visitor to the unmaintained original.
+- **README opens with the package name.** `PyPI package name: opentele-ng`,
+  `pip install opentele-ng`, the note that the import path stays `opentele`, and
+  a one-sentence statement of what the fork changes (Python 3.10 – 3.14, no Qt
+  runtime) now sit above the badges instead of being spread across the
+  "Why this fork" and "Install" sections further down. The old lead blockquote
+  was dropped rather than kept alongside it — it repeated the same three claims
+  a few lines later. The same package-name lead was added to `docs/index.md`,
+  which is what the Pages homepage now serves.
+- **Upstream's activity dates corrected in `README.md` and `docs/index.md`.**
+  Both said upstream was "last touched in 2022". Its last PyPI release is
+  January 2022 (1.15.1), but its last commit is 2024-07-15 (`1a6f081`) — the
+  "new tdata" work merged from PR #119. The 2022-only phrasing overstated the
+  case for this fork; the dates are now given separately and correctly.
+- ⚠️ **Still open, owner action only:** the repository is flagged as a fork of
+  `thedemons/opentele`. GitHub excludes forks from repository and code search
+  and from topic listings, so the topics above stay invisible until the flag is
+  cleared. It cannot be cleared from the CLI or the API, and the decision is the
+  owner's because it is not free. The self-serve route is
+  **Settings → General → Danger Zone → "Leave fork network"**; this repository
+  meets its three conditions (public, 4 MB, no child forks). But GitHub states
+  plainly that a detach does not retain "issues, pull requests, wikis, stars,
+  watchers, comments, child forks, or other metadata" — only git commit history
+  survives — and that leaving the network is **permanent and cannot be undone**.
+  For this repository that means trading the 20 stars and the 1 open issue for
+  search and topic visibility. The alternative is asking **GitHub Support** to
+  perform the detach and to say up front whether they can carry the stars over;
+  that question should be settled before anyone clicks the button. Recreating
+  the repository by hand loses the same metadata and gains nothing.
+- **Telegram Desktop v7.0.7 (2026-08-01) and v7.0.8 (2026-08-03) added to the
+  fingerprint table**, both layer 228 (read from `api.tl` at each tag — the same
+  layer 7.0.6 speaks). No effect on the default fingerprint today: Telethon
+  1.44.0 announces layer **227**, so the default stays `6.9.3 x64`. It changes
+  the layer-228 pool only, which is what `match_layer=False` draws from now and
+  what the default becomes once a Telethon speaking 228 ships. 7.0.7 was found
+  while checking `anmv/opentele` `4df17bd` from the monthly fork sweep — that
+  fork's own change was already covered here, but verifying it against upstream
+  tdesktop releases surfaced the gap; 7.0.8 landed hours later the same day and
+  was picked up on the next pass. v6.9.4 stays out — GitHub reports it
+  `prerelease: true`, and the beta guard in `test_no_beta_versions_in_table`
+  already names it.
+
+### Fixed
+
+- Ship the layer-229 fingerprint entries added on October 2: fresh PyPI
+  installs with Telethon 1.45.0 now advertise Desktop 7.2.9 (layer 229), rather
+  than falling back to Desktop 7.0.6 (layer 228) in published 1.4.0.
+- The test image runs as UID/GID 10001, with writable application and home
+  directories, matching the production image's non-root runtime.
+
+- **The advertised tdata support range was wrong, and it understated the
+  library.** `pyproject.toml` and `docs/index.md` claimed support for "current
+  TDesktop 5.x–6.x tdata format" while the fingerprint table in the same repo
+  already listed 7.0.8. Read against the source, neither number means anything:
+  `Storage.ReadFile` checks the `TDF$` magic and the MD5 trailer, then reads the
+  header's version field purely as information (it becomes `TDesktop.AppVersion`)
+  and never compares it to a floor or a ceiling. Compatibility is decided by the
+  contents. The `lskType` enum in `td/configs.py` matches TDesktop's own in
+  `storage_account.cpp` entry for entry, `0x00` – `0x1E`, checked line by line
+  against `dev` at the v7.0.9 release (2026-08-06); the account-map reader
+  dispatches `lskDraft` (`0x01`) through `lskPrefs` (`0x1E`), `lskUserMap`
+  (`0x00`) naming the map file rather than a block in it. One divergence is a
+  name, not an ID: TDesktop renamed `0x11` to `lskTrustedPeers`, this fork still
+  calls it `lskTrustedBots`. In the MTProto path the single hard equality is
+  `MTP.Config.kVersion == 1`; `DcOptions` accepts any positive version on read
+  and only writes `kVersion = 2`. So the range has been dropped rather than
+  re-numbered — a verified-against version plus "no version check in the way" is
+  both true and stable, where any pair of digits goes stale on TDesktop's next
+  release. The mechanism is now written out in the README's Status section and
+  under a new "Which Telegram Desktop versions can it read?" heading on the docs
+  home page, so the claim can be checked instead of trusted. The docs stop short
+  of promising forward compatibility: a later release adding a block type,
+  changing an existing one's layout, or bumping `MTP.Config` would still need
+  work. No code changed.
+
+- README test counts and coverage now reflect the current suite, including
+  12 release-watch cases: 368 passed, 3 opt-in tests skipped, 81.95% coverage
+  on local Python 3.14. One additional test skips below Python 3.13; other
+  platforms and versions are covered by the hosted CI matrix.
+- **Pyrogram file sessions: the "don't reuse another account's `.session`" guard
+  probed the wrong directory.** It resolved an omitted `workdir` to
+  `os.getcwd()`, but Pyrogram defaults it to the *entry script's* directory
+  (`Path(sys.argv[0]).parent`). The guard therefore stat'ed a path that is never
+  written: a second `ToPyrogram(in_memory=False)` for a different account reused
+  the existing file instead of raising `FileExistsError`, inheriting the previous
+  account's `peers` / `usernames` / `update_state` rows — exactly what the guard
+  was added to stop — and `overwrite=True` never unlinked anything, silently
+  degrading a wholesale replace into an in-place credential swap. The client is
+  now built first and the path taken from its own storage, so the check always
+  follows Pyrogram. Only the default-`workdir` case was affected; every test
+  passed `workdir=` explicitly, which is why it went unnoticed.
+- **`Account.ToPyrogram(flag=CreateNewSession)` dropped connection settings for
+  the QR login.** `**kwargs` reach `pyrogram.Client` only, so a `proxy=` meant
+  for the conversion left the authorization of the *new* session going out over
+  a direct connection, and the Telethon-shaped tuple was then handed to Pyrogram,
+  which wants a dict. The login leg now takes its own `telethon_kwargs={...}`
+  (also on `TDesktop.ToPyrogram()`), and the split is documented on both. Keys
+  `ToPyrogram()` fixes itself (`session`, `flag`, `api`, `password`) now raise a
+  `ValueError` naming them instead of a bare "got multiple values for keyword
+  argument" from a call the caller never wrote.
+- **`scripts/fork_watch.py`: a commit with an empty message aborted the whole
+  monthly run** with an `IndexError` in `recent_commits()` (`--allow-empty-message`
+  is legal), filing no issue at all. Uses the same safe idiom as
+  `compare_to_upstream()` now.
+- Docs said an omitted `workdir` puts `<name>.session` in the process CWD
+  (`docs/examples/pyrogram.md`, `pyrogram_bridge.make_client()`,
+  `Account.ToPyrogram()`); it lands next to the entry script.
+- `fork_watch.compare_to_upstream()` carried a comment claiming a >250-commit
+  compare loses the fork tip. Checked against the live API (torvalds/linux
+  `v6.0...v6.1` returns 250 of 10000 commits and still ends on the `v6.1`
+  commit): GitHub drops the *oldest* entries, so the last one is always the
+  head. Behaviour unchanged, comment corrected and pinned by a test — the wrong
+  comment had already produced one "fix" that would have re-reported every large
+  fork every month.
+
+## [1.4.0] - 2026-07-29 — Pyrogram bridge, MTProto-layer-aware fingerprints, fork divergence sweep
+
+### Added
+
+- **Pyrogram bridge — `TDesktop.ToPyrogram()` / `TDesktop.FromPyrogram()` and the
+  same pair on `Account`** (`opentele.tl.pyrogram_bridge`). Upstream listed this
+  as an "incoming feature" for four years and never shipped it. Pyrogram is an
+  **optional** extra — `pip install opentele-ng[pyrogram]` (pulls `pyrofork`;
+  vanilla `pyrogram` and `kurigram` provide the same import name and also work).
+  Nothing is imported at package import time, so installs without the extra are
+  unaffected.
+  - The session string is produced by Pyrogram's own
+    `Storage.export_session_string()`, not by packing `SESSION_STRING_FORMAT`
+    here, so a format change in any of those distributions cannot silently
+    produce a corrupt session.
+  - `ToPyrogram()` passes the full `APIData` fingerprint through, **including
+    `lang_pack`** — Telethon cannot send that field at all, so this path is a
+    closer match to an official client than the Telethon one.
+  - `in_memory=True` by default: converting a session no longer drops a
+    `.session` file into the caller's working directory as a side effect.
+    `in_memory=False` writes a real, reloadable `<name>.session` — the first
+    cut passed a session string in both cases, and a session string always
+    selects `MemoryStorage` in Pyrogram regardless of the flag, so the file
+    mode silently produced no file (caught by Codex, now covered by a test that
+    reopens the file and reads the key back). An existing file raises
+    `FileExistsError` unless `overwrite=True`: writing into it would replace
+    only the credentials row, leaving Pyrogram's `peers` / `usernames` /
+    `update_state` tables from the previous account behind (also Codex, on
+    re-review — the first fix wrote into the existing file and the docs
+    claimed a full overwrite).
+  - **`app_version` is re-pointed at Pyrogram's own MTProto layer.** Pyrogram
+    ships its own generated schema and is not on Telethon's layer — pyrofork
+    2.3.69 announces 220 where Telethon 1.44 announces 227 — so handing a
+    Pyrogram client the Telethon-aligned Desktop version would have been the
+    very mismatch the layer table exists to prevent. `align_layer=False` opts
+    out. Non-Desktop fingerprints pass through untouched.
+  - **Test-DC and bot sessions are rejected** with `PyrogramSessionUnsupported`
+    instead of silently producing dead `tdata`: `test_mode` and `is_bot` live
+    in the session string, but the `tdata` written here always carries the
+    production MTP config, and Telegram Desktop cannot sign in as a bot.
+  - A storage the bridge opens is closed again; one the caller had already
+    opened is left alone. Leaving it open leaked a SQLite connection that
+    Pyrogram's own `connect()` would then orphan.
+  - `flag=CreateNewSession` is supported on `ToPyrogram()` by QR-authorizing
+    through the existing Telethon path first, then converting that session.
+    `FromPyrogram()` is `UseCurrentSession`-only and says so.
+  - Not adopted from `timka-123/opentele`, which attempted this: that code calls
+    `account.isLoaded()` before `account` is bound (`NameError` on the first
+    call), rewrites `writeKeys` to stamp `MainDcId` onto every key (corrupting
+    `serializeMtpAuthorization()` for multi-DC accounts), passes
+    `session_name=` (not a Pyrogram 2.x parameter) and regresses
+    `AuthKey(account.authKey)` in the Telethon path. Only the idea was taken.
+  - 11 offline tests, including a full `tdata → Pyrogram → tdata → SaveTData →
+    LoadTData` round trip asserting the auth key survives byte-for-byte.
+
+### Changed
+
+- **Advertised Telegram Desktop version is now MTProto-layer-aware.** Telethon
+  announces a layer in `InvokeWithLayer`, and a real Telegram Desktop build of
+  version X always announces the layer that shipped with X — so advertising a
+  version whose layer disagrees with the wire is a mismatch no amount of device
+  randomization hides. New `TELEGRAM_DESKTOP_LAYERS` maps every release in
+  `TELEGRAM_DESKTOP_VERSIONS` to the layer read from
+  `Telegram/SourceFiles/mtproto/scheme/api.tl` at that release tag, and
+  `_generate_tdesktop_app_version()` now draws only from builds matching the
+  installed Telethon's layer (`match_layer=False` opts out). Since the layer is
+  read from Telethon at runtime, this stays correct when the pin moves.
+  `anmv/opentele` had the same insight but hardcodes the pair; this derives it.
+- **`API.TelegramDesktop.app_version`: `6.8.2 x64` → `6.9.3 x64`** with the
+  installed Telethon 1.44. Deliberately *not* the newest release: Telegram
+  Desktop 7.0.x speaks layer 228, Telethon 1.44 speaks 227, and 6.9.3 is the
+  newest **stable** build on 227. The value is **realigned at import** by
+  `_align_desktop_version_with_telethon()`, because this package supports
+  `telethon>=1.36,<2` — a range spanning many layers — and a single literal can
+  only be right for one of them (caught in review: with Telethon 1.38 the old
+  literal advertised a 6.9.x build over layer 193). The class-body literal
+  remains the fallback for when Telethon is absent or stops exposing `LAYER`.
+  **Known limitation:** a Telethon older than the whole table (e.g. 1.38, layer
+  193) has no exact match, so the oldest known build is used — the pair is
+  approximate there, in the conservative direction.
+- **`TELEGRAM_DESKTOP_VERSIONS` refreshed** — was v5.16.0 … v6.8.2 with betas
+  mixed in; now v6.0.0 … v7.0.6, **stable releases only** (a beta build reports
+  its version differently, so advertising a beta-only number is itself a tell).
+- **`API.TelegramAndroid.app_version`: `12.6.0 (6500)` → `12.9.0 (6966)`**
+  (DrKLO/Telegram, 2026-07-16 — its tags lag its releases, so this comes from
+  the commit log).
+- **`API.TelegramIOS.app_version`: `12.7` → `12.9.2`** (newest `release-*` tag).
+- **`API.TelegramWeb_Z`: `app_version` `1.28.3 Z` → `12.0.36 A`, `lang_pack`
+  `""` → `"weba"`.** That client is **Telegram Web A** now: `Ajaxy/telegram-tt`
+  sends `"${APP_VERSION} ${APP_CODE_NAME}"` with `APP_CODE_NAME = 'A'` and
+  `LANG_PACK = 'weba'` (`src/config.ts`), and its `package.json` is at 12.0.36.
+  The old values were a 2021 snapshot — stale number, retired code name, and an
+  empty lang pack from back when it sent none. The class name is kept for
+  backwards compatibility. **Behaviour change** for anyone pinning it.
+  (First pass only bumped the number and left the `Z`/empty lang pack, which
+  would have been an incoherent pair — caught by Codex reading the client
+  source.)
+- **`API.TelegramWeb_K`: `app_version` `"1.0.1 K"` → `"2.2"`, `lang_pack`
+  `"macos"` → `"webk"`.** `src/lib/mtproto/networker.ts` in
+  `morethanwords/tweb` sends `app_version: initConnectionParams.version`, i.e.
+  `VITE_VERSION` verbatim — no `" K"` suffix, not `VITE_VERSION_FULL` — and
+  `src/config/app.ts` reads `langPack: 'webk'` (the `"macos"` here came from a
+  2021 commit of that file). **`api_id` / `api_hash` deliberately unchanged**:
+  `.env` carries `VITE_API_ID=1025907`, but `app.ts` overrides it back to
+  Webogram's `2496 / 8da85…` when `isMainDomain`, and `MAIN_DOMAINS` is
+  `web.telegram.org` / `webk.telegram.org` — the deployment this class models.
+  An intermediate version of this change did adopt the `.env` pair, which would
+  have silently switched the API under existing sessions (caught on Codex
+  re-review; the `.env` credentials only apply to self-hosted builds).
+- **Browser UA in the three web APIs: Chrome 96 (2021) → Chrome 150** (current
+  stable, July 2026). A five-year-old UA stands out on its own.
+- `API.TelegramMacOS.app_version` stays `11.15` — re-checked, and the only
+  verifiable source (`overtake/TelegramSwift`) has not been pushed since
+  2025-07-29. Guessing a higher number without a source would be worse.
+- **`API.Telegram*` docstrings** now show the values the code actually uses;
+  several still advertised upstream's 2022 strings (`"8.4.1 (2522)"`).
+
+### Fixed
+
+- **`import opentele.api` crashed outright with `debug.IS_DEBUG_MODE` on.** The
+  new import-time version alignment called a `@staticmethod` through the class,
+  and the debug metaclass re-invokes wrapped callables as `fget(self, owner)` —
+  so the staticmethod got two arguments it does not take and the import raised
+  `TypeError`. `tests/tdata_test.py` turns that mode on, and any user can. The
+  layer helpers now live at module level (`_read_telethon_layer`,
+  `_pick_versions_for_layer`) where the metaclass cannot reach them, with the
+  classmethods as thin wrappers. (Codex; reproduced and fixed.)
+- **`scripts/fork_watch.py` aborted the whole monthly report on one flaky
+  socket.** `gh_get()` only ever caught `HTTPError`, so a single `URLError`
+  timeout among ~150 requests killed the run with a traceback and no issue
+  filed — reproduced on the first live run of the new sweep. Transient
+  transport errors are now retried twice with backoff, and per-fork failures
+  degrade to a line in a "Compare errors" section instead of aborting.
+
+### Changed (tooling)
+
+- **`fork_watch.py` gained a divergence sweep.** The report used to look only at
+  forks *pushed* in the last 35 days, so a fork that diverged in 2024 and went
+  quiet was invisible to every monthly run — which is exactly how
+  `timka-123`'s Pyrogram work (2024) and `pypchuk`'s fsspec work (2024) went
+  unnoticed until a manual sweep of all 124 forks on 2026-07-29. The report now
+  also compares **every** fork against upstream `main` and lists those ahead,
+  with a `TRIAGED_FORKS` verdict table so already-reviewed forks collapse and
+  only genuinely new divergence needs attention. `has_activity` is true when
+  untriaged divergence exists even if nobody pushed anything this month.
+  - Triage is keyed by the **reviewed head commit** (`TRIAGED_HEADS`, filled in
+    by `python scripts/fork_watch.py --print-heads`), not by repo name: keying
+    by name alone would trust a fork forever after one review, recreating the
+    blind spot this sweep was written to close. A fork that gains commits comes
+    back as untriaged with its earlier verdict quoted for context. (Codex.)
+  - A fork that could not be compared now counts toward "needs attention" too —
+    previously the error section was printed but `has_activity` stayed false,
+    so no issue was filed and an unchecked fork looked like a clean one.
+  - A moved fork keeps its earlier verdict in the report even when merge-noise
+    filtering leaves it with no listable commits — an early `continue` used to
+    drop exactly the context the reader needs (Codex, re-review).
+  - `tests/test_fork_watch.py` covers the triage decisions (stubbed network);
+    `Dockerfile.test` now copies `scripts/` so they actually run in CI.
+
+## [1.3.2] - 2026-07-29 — positional `api_hash` fix, honest coverage gate, working Docker test flow
+
+### Fixed
+
+- **`TelegramClient(session, api_id, api_hash)` silently set `api_hash` to the
+  `api_id`.** Our `__init__` inserts an extra `api` parameter in slot 2, so the
+  plain Telethon-style positional call arrives as
+  `api=<api_id>, api_id=<api_hash>, api_hash=None` and has to be un-shifted.
+  Upstream opentele did that with `api_id = api` followed by
+  `api_hash = api_id` — the second line reads the name the first line just
+  overwrote. Result: `client.api_hash == client.api_id`. Construction succeeds
+  and `initConnection` does not carry `api_hash`, so an already-authorized
+  session behaves normally; only login RPCs (`send_code_request` / `sign_in` /
+  `start`) fail, with `ApiIdInvalidError`. This is the form the library's own
+  docstrings advertise (`Account.FromTelethon`), so it is the documented calling
+  convention. Now a single swap statement.
+- **`TelegramClient(session, api_id, api_hash="...")` raised "Your API ID or
+  Hash cannot be empty or None".** Telethon makes everything after `api_hash`
+  keyword-only, so that mix is a valid Telethon call, but the un-shift branch
+  required a truthy `api_id` — which is `0` here — and fell through with no
+  credentials at all. Handled explicitly now.
+- **`TelegramClient(session, <int>, x, y)` silently dropped `y`.** Telethon has
+  no fourth positional parameter, so this only happens when the caller assumes
+  slot 2 is `api_id`; no reading of it keeps all three values. It now raises
+  `TypeError` naming both supported forms instead of quietly building a client
+  with the wrong credentials.
+- **`TelegramClient.FromBundle` hit the first bug** — it passed
+  `api_id, api_hash` positionally into the `api, api_id` slots. Now keyword
+  args on both branches (string session and `.session` file).
+
+  All four are pinned by `tests/test_telethon_client_init.py` (15 tests:
+  positional == keyword, `api_hash` is never the id, the mixed and ambiguous
+  forms, `api=APIData` and default paths unchanged, plus both `FromBundle`
+  session flavours with the network stubbed out).
+- **`docker build -f Dockerfile.test .` had been broken since 1.2.0** — the
+  `.dockerignore` added in that release excluded `tests/`, and a build context
+  is shared by every Dockerfile in the directory, so the `COPY tests/` line
+  could never resolve. That is the exact command `CONTRIBUTING.md` tells
+  contributors to run. `tests/` is no longer excluded (the production
+  `Dockerfile` never copies it, so the shipped image is unchanged).
+- **Three `.dockerignore` patterns were inert** — `opentele`, `claude/` and
+  `site/` carried trailing `# ...` comments. `.dockerignore` only honours
+  whole-line comments, so those were parsed as literal patterns and matched
+  nothing; private `claude/` session notes were being uploaded into every build
+  context. Comments moved onto their own lines.
+- **`Dockerfile.test` now copies `.coveragerc`, `Dockerfile` and
+  `requirements-docker.txt`.** Without `.coveragerc` the container's coverage
+  numbers silently diverged from CI, and the two supply-chain guards in
+  `tests/test_known_issues_1_3_0.py` failed because the files they assert on
+  were not in the image. A local `docker run --rm opentele-test pytest` now
+  reproduces CI exactly.
+
+### Changed
+
+- **The coverage gate now measures the whole package.** `.coveragerc` excluded
+  bare `pass`, `raise`, `except` and `nocov`, which dropped every error path
+  plus whole classes (`MapData`, `MTP`, `extend_class`, the `configs` id types)
+  out of the denominator: `td/account.py` reported **142** statements instead
+  of 659, `td/mtp.py` **3** instead of 259, and the advertised "82.58%" was
+  computed over 1745 of ~3160 statements — roughly 55% of the code, with the
+  untested half being the error handling of a parser fed untrusted tdata.
+  `exclude_lines` is now `pragma: no cover` plus structurally unreachable
+  lines, and `--cov-fail-under` moves `80 → 78` in `ci.yml` / `publish.yml`.
+  The number reads lower but covers nearly twice the code; measured total is
+  81.3%, with `td/account.py` 88%, `td/mtp.py` 87%, `td/qdatastream.py` 89%,
+  `td/storage.py` 91%. Verified identical on Linux / Python 3.10, 3.12, 3.13
+  and 3.14, so the 3-point margin is not version-dependent.
+- **`requirements-docker.txt` regenerated** — `telethon 1.43.2 → 1.44.0`,
+  `pyasn1 0.6.3 → 0.6.4`. The GHCR image was shipping a Telethon that CI never
+  tested against (CI resolves the latest allowed by `telethon>=1.36,<2`).
+- **Dead `[tool.ruff]` table removed from `pyproject.toml`.** A `.ruff.toml`
+  next to `pyproject.toml` wins outright, so that table never applied — and it
+  disagreed with `.ruff.toml` (line-length 100 vs 120, a much shorter ignore
+  list), which is a trap for anyone tuning lint rules. A pointer comment
+  replaces it.
+- **`CONTRIBUTING.md` now says to land changes and the version bump as two
+  commits.** The bump is the release trigger and the release path does not wait
+  for the CI matrix — `publish.yml` re-tests on Ubuntu / Python 3.13 only and
+  `docker.yml` runs no tests — so a combined commit can publish to PyPI and
+  GHCR before macOS / Windows / Python 3.10-3.12 have reported. (Caught by
+  Codex review; 1.3.2 itself was released this way.)
+
+### Upstream fork sweep (closes #5, #6)
+
+Reviewed every commit flagged by the monthly `forks-watch` reports. **Nothing
+adopted** — all of it is already implemented here, or is a downgrade:
+
+- `Pavel-qr/opentele@e9ad22c` "fix for python 3.13" — adds
+  `__firstlineno__` / `__static_attributes__` to `extend_class`'s `crossDelete`.
+  Already in `src/utils.py` since 1.0.x, with the PEP 749 rationale in a
+  comment.
+- `Pavel-qr/opentele@b9dda77` "fix some bugs, add actual devices" — mostly
+  PyCharm re-indentation. The substance: `app_version` strings bumped to
+  Telegram 5.10 / 10.1.1 / 9.3.2 (ours are already 6.8.2 / 12.6.0 / 12.7),
+  device lists *narrowed* to one macOS model on macOS 13.4.1 and Android
+  capped at SDK 33 (ours: iPhone 17 / iOS 26, macOS 26, SDK 37), and
+  `kMaxAccounts = 150` (Telegram Desktop's real cap is 6, which is what we
+  use). Also changes `PrintSessions` to *return* the table instead of printing
+  it — a silent break of a documented public method — and adds IP / country /
+  region columns.
+- `Ehekatech/opentele-tg@b66909d` — `await newClient._on_login(...)`. We
+  already detect `Awaitable` at runtime, so both sync and async Telethon
+  builds work; the fork's version breaks on the sync path. Its other commits
+  delete repo scaffolding (`.gitignore`, `.coveragerc`, `.readthedocs.yml`).
+
+### CI / Supply chain
+
+- **Third-party actions are now pinned by commit SHA.** `publish.yml` referenced
+  `pypa/gh-action-pypi-publish@release/v1` — a *floating upstream branch* that
+  would receive this repo's PyPI OIDC upload token on every run; `docker.yml`
+  referenced mutable `docker/*@vN` tags while holding a GHCR push token. Both are
+  now SHA-pinned to exactly what those refs resolved to on 2026-07-25, so
+  behaviour is unchanged:
+  `pypa/gh-action-pypi-publish@ba38be9e` (= release `v1.14.1`),
+  `docker/setup-qemu-action@c7c53464` (v3.7.0),
+  `docker/setup-buildx-action@8d2750c6` (v3.12.0),
+  `docker/login-action@c94ce9fb` (v3.7.0),
+  `docker/metadata-action@c299e40c` (v5.10.0),
+  `docker/build-push-action@10e90e36` (v6.19.2).
+  First-party `actions/*` are left on `vN` (same trust domain as the runner).
+  Dependabot's `github-actions` ecosystem is already enabled here, so it will
+  keep the SHAs (and the `# vX.Y.Z` comments) updated via PRs.
+  (Landed on `main` on 2026-07-25 without a version bump; ships in 1.3.2.)
+
+## [1.3.1] - 2026-07-18
+
+### CI
+
+- **Releases are now automatic on version bump.** New `autotag.yml`: a push to `main` that changes `pyproject.toml` checks PyPI for `project.version`; if absent, it ensures tag `v<version>` exists and dispatches `publish.yml` **and** `docker.yml` on that tag (tags created with `GITHUB_TOKEN` don't fire workflows themselves, hence the explicit dispatch; both workflows gained a `workflow_dispatch` trigger). The PyPI check makes it an idempotent recovery path too — partial failures are retried via manual `workflow_dispatch` of `autotag.yml`. `publish.yml` now refuses to run on non-tag refs (a branch named `v1.2.3` can't reach PyPI). `autotag.yml` pins `actions/checkout` by SHA and drops persisted credentials. Manual tag push keeps working as before. Context: the code below sat on `main` since 2026-05-22 because nobody pushed the tag — this release shipped the day the automation landed.
+
+### Added
+- **`TelegramClient.FromBundle(json_path, proxy, **kwargs)`** — новый статический метод для создания авторизованного `TelegramClient` из JSON-бандла (формат: `app_id` + `app_hash` + рядом лежащий `.session`-файл или встроенная `string_session`). Поддерживает все распространённые имена ключей строковой сессии: `string_session`, `session_string`, `telethon_string`, `telethon_session`. Возвращает подключённый клиент — вызывающий код отвечает за `disconnect()`.
+
+## [1.3.0] - 2026-05-20 — Known-issues sweep: security default, UTF-8 passcode, strict lskType, Docker lock
+
+Closes the 5 architectural items filed under "Known issues" in 1.2.2. Two of them are **behaviour changes** (security default + unknown-key strict mode); the rest are bug fixes.
+
+### Security
+
+- **`TDesktop.kPerformanceMode` default flipped `True` → `False`.** Previously, calling `SaveTData(path)` without a passcode produced tdata encrypted with a hard-coded `localKey` baked into the source — effectively unencrypted. Anyone with the bytes could decrypt. From 1.3.0 the default path derives a real `localKey` via random salt + scrypt (~250 ms one-off cost on save, same as Telegram Desktop itself).
+
+  Existing call sites that rely on the old default (`TDesktop().SaveTData(p)` with the fast path) will save ~5000× slower. Opt back in explicitly:
+
+      TDesktop.PerformanceMode(True)  # emits UserWarning about constant localKey
+
+  **`PerformanceMode(True)` now emits a `UserWarning`** explaining the trade-off (`stacklevel=2` so the caller's line is the one shown).
+
+### Fixed
+
+- **Non-ASCII passcodes crashed with `UnicodeEncodeError`** in three sites (`src/td/tdesktop.py:130/200/265` encoded as ASCII). 1.3.0 encodes as UTF-8, matching Telegram Desktop's `QString::toUtf8` behaviour. Cyrillic and emoji passcodes now roundtrip.
+- **`StorageAccount.start()` was returning a default `MTP.Config`** instead of reading the persisted one when in performance mode (`src/td/account.py:631`). On the write side `writeMtpConfig` was also skipped (`src/td/account.py:759`). Both are now unconditional — performance mode skips only the expensive *localKey* derivation, not the config persistence. **Data-loss class closed.**
+- **Unknown `lskType` keys silently desynced the read cursor.** The previous handler logged a warning and continued reading the *next* `uint32` — but the unknown key's *payload* hadn't been consumed, so the next read picked up payload bytes as a fake "next keyType". From 1.3.0 the default is **strict / fail-closed**: an unknown key raises `TDataReadMapDataFailed` with a clear message pointing at the open issue tracker. Set `OPENTELE_LENIENT_UNKNOWN_LSK=1` in the environment to get the old log-and-break behaviour (still safer than 1.2.x because the loop terminates).
+
+### Changed
+
+- **`Dockerfile` now installs runtime deps from a hash-locked file** (`requirements-docker.txt`), then installs the opentele-ng wheel with `--no-deps`. **Runtime deps are reproducible** (build tooling in the builder stage is still resolved at build time — Codex flagged the overstatement). Lock file is regenerated via `pip-compile --generate-hashes --output-file requirements-docker.txt pyproject.toml`. `.txt` extension (not `.lock`) is what Dependabot's pip ecosystem recognises, so weekly version bumps are PR'd automatically. PyPI users are unaffected — the wheel still has flexible `telethon>=1.36,<2` + `tgcrypto-pyrofork>=1.2.7` ranges.
+
+### Added
+
+- **`tests/test_known_issues_1_3_0.py`** — 8 regression tests, one per known-issue. Each is named after the CHANGELOG entry it pins so a future flip-back fails at the spec.
+- **`requirements-docker.txt`** — autogenerated hash-locked deps for the Docker image. Refresh via the command in the lock file's header.
+
+### Verified
+
+- 284 tests pass on Python 3.10–3.14 (+8 known-issues tests). Coverage 83.64% on the whole package.
+- **All 6 CI lanes green.**
+- **Real Telegram Desktop tdata regression sentinel** (TD 6.0.6 + TD 6.0.8): `authKey_sha256` matches the values memorised since 1.2.0 byte-for-byte. Zero wire-format regression from the security / behaviour changes (they only affect *write* paths and *unknown-key* handling, not the existing fixtures' read).
+- `docker pull ghcr.io/stufently/opentele-ng:1.3.0` ships a reproducible image with telethon 1.43.2 + tgcrypto-pyrofork 1.2.8 pinned by SHA.
+
+## [1.2.2] - 2026-05-20 — Devices JSON refactor + CodeQL findings + GH labels + CI hardening
+
+### Known issues (filed for follow-up release)
+
+Surfaced by the project-wide 3-AI review during 1.2.2. None are runtime regressions vs 1.2.1, but they should be addressed in a follow-up release:
+
+1. **`kPerformanceMode = True` is the default**, which means new tdata created via `TDesktop.SaveTData(path)` (no passcode) is encrypted with a hard-coded `localKey` — i.e. effectively unencrypted. This is upstream behaviour, but should be opt-in rather than default. Flip default in 1.3.0 + deprecation warning.
+2. **Non-ASCII local passcodes crash** with `UnicodeEncodeError` instead of a domain `OpenTeleException` (`src/td/tdesktop.py:130/200/265` encode as ASCII). Cyrillic/emoji passcodes unsupported.
+3. **`StorageAccount.start()` skips reading `config` when in performance mode** (`src/td/account.py:631`), which means certain MTP config fields are lost on re-save. Performance toggle should not change data semantics.
+4. **Unknown `lskType` keys** are logged but their payload is not skipped (`src/td/account.py:329`), so a future TDesktop with a new lskType will desync the read cursor. Need either fail-fast strict mode or generic length-skip.
+5. **Docker runtime deps not lock-hashed.** `telethon>=1.36,<2` + `tgcrypto-pyrofork>=1.2.7` resolve fresh at image build. Reproducible image needs a constraints lock file.
+
+### Fixed
+
+### Fixed
+- **`src/devices.py:5333` — data bug from upstream**: `"Huawei MediaPad 7 Vogue" "Huawei LEO-BX9",` (missing comma) was being silently concatenated by Python into a single bogus device name `"Huawei MediaPad 7 VogueHuawei LEO-BX9"` — and the real `LEO-BX9` was missing from the device fingerprint list. CodeQL warning `py/implicit-string-concatenation-in-list` caught it. The Android device list now has 4870 entries (was 4869).
+- **`tests/qdatastream/test_pure_errors.py:514` — `py/side-effect-in-assert`**: `assert f.open(Mode.ReadOnly) is True` is invalid under `python -O` (asserts stripped → file never opens, test silently passes). Split into `opened = f.open(...); assert opened is True`. CodeQL ERROR closed.
+- **`src/__main__.py:39, 125` — `py/empty-except`**: added explanatory comments so reviewers / CodeQL see the intent (best-effort diagnostic / cleanup paths).
+
+### Changed
+- **`src/devices.py`: 174 KB → 17 KB** (-90%). The four huge `device_models` lists (Desktop 790, macOS 37, Android 4870, iOS 20) moved to `src/devices.json`, loaded once on import via `_load_devices_json()`. Class-level `device_models: List[str] = _DATA["..."]["device_models"]` line replaces ~5700 lines of Python list literals. `system_versions` lists stay inline — they're tiny and carry valuable per-version comments.
+- **`pyproject.toml`** + **`MANIFEST.in`**: ship `src/devices.json` as package data so wheel users get it.
+
+### Added
+- **`scripts/extract_devices_data.py`** — one-shot extractor: reads the in-memory class attributes and writes `src/devices.json`. Re-run when device lists change. Idempotent.
+- **`scripts/slim_devices_py.py`** — one-shot rewriter: replaces literal `device_models = [...]` blocks in `devices.py` with JSON-backed references. Idempotent (no-op if already migrated).
+- **Repository labels created** via `gh label create`: `wire-format`, `forks-watch`, `dependencies`, `python`, `ci`, `docker`, `security`. Issue templates that reference them now actually attach the labels on submit (Cursor + Codex catch from 1.2.0 review).
+
+### Verified
+- 270 tests pass on Python 3.10–3.14, coverage 83.55% on the whole package.
+- **Regression sentinel on 2 real Telegram Desktop tdata folders** (TD 6.0.6 + TD 6.0.8) under `/home/deploy/autootvetchik/opentelettesttdata/`: `authKey_sha256` matches the stored values byte-for-byte (`544e4b3edf450a18…` for tdatanew, `775161c1b987143b…` for Telegram_27637711346). Zero wire-format regression from the JSON refactor.
+- `docker pull ghcr.io/stufently/opentele-ng:1.2.2 && docker run --rm … info /tdata` works on both fixtures with `mainAccount_index = 0`.
+
+## [1.2.1] - 2026-05-20 — Coverage scope, QFile.bytesAvailable, Py3.14 Docker, cleanup
+
+### Changed
+- **Docker base image switched to `python:3.14-slim`** (was `3.13-slim`), digest-pinned to `sha256:a7185a8e…` for reproducibility. The PyPI wheel is still pure-Python and works on Python 3.10–3.14 — the change only affects the GHCR container. `scripts/publish.sh` and `Dockerfile.test` follow the same Py3.14 bump.
+- **Coverage gate scope expanded from `--cov=opentele.td` to `--cov=opentele`**. Gates the WHOLE package, surfacing previously-invisible gaps in `__main__.py` (CLI), `tl/telethon.py`, `api.py`. Threshold lowered to 80% (was 90% on `.td` only) to accommodate `tl/telethon.py`'s 24%-covered QR-login paths that need a live Telegram socket to exercise. The `opentele.td` package itself stays at 94.83%.
+
+### Added
+- **`QFile.bytesAvailable()`** in `src/td/qdatastream.py` — mirrors `QIODevice` contract so `QDataStream` over a `QFile` behaves identically to one over a `QBuffer`. Today's `storage.py` hot path reads files into a `QByteArray` before parsing, so this is consistency hardening rather than a hot-path bug fix — but `_GuardCount` in `account.py` calls `stream.bytesAvailable()`, so any future caller that streams `MapData` from a `QFile` directly would have hit a spurious `TDataReadMapDataFailed`. Caught by Gemini in the 1.2.0 review, deferred to here. **4 new tests** in `tests/qdatastream/test_pure_errors.py`.
+- **CLI integration tests on a real fixture tdata** — `test_cli_info_on_real_fixture_tdata_succeeds` and `test_cli_info_json_on_real_fixture_tdata_parses` build a tdata via `TDesktop.SaveTData()` and invoke `python -m opentele info` as a subprocess. These are the tests that would have caught the 1.1.0 Windows regressions (`types.auth` shadowing and the `MainAccount`→`mainAccount` typo) before they reached users.
+
+### Removed
+- `docs/build/` (72 KB) and `docs/documentation/` (256 KB) — stale upstream documentation that was already excluded from the mkdocs site via `exclude_docs`. Cleaned up the matching exclude entries in `mkdocs.yml`.
+
+### Verified
+- 270 tests pass on Python 3.10–3.14 (was 264; +6 from QFile.bytesAvailable, +2 from CLI fixture tests). Coverage 83.48% on the whole `opentele` package; `opentele.td` subset still at 94.83%.
+- `docker build -t opentele-ng:py314 .` on the new base + smoke `info` on real tdata works end-to-end on Python 3.14.5.
+
+## [1.2.0] - 2026-05-20 — Docker image + supply-chain hardening + forks watch
+
+### Fixed (Windows regressions reported on 1.1.0)
+- **`opentele-ng info` crashed on Windows consoles (cp1251 / cp437)** with `UnicodeEncodeError` on the `└─` box-drawing character. `_ensure_utf8_stdout()` now reconfigures `sys.stdout` / `sys.stderr` to UTF-8 at CLI startup (safely no-ops on streams without `reconfigure`, e.g. `io.StringIO` under pytest).
+- **`opentele-ng convert` (default `CreateNewSession` mode) crashed with `AttributeError: module 'types' has no attribute 'auth'`** during QR-login. `src/tl/telethon.py` now imports `telethon.types` explicitly — previously it relied on `from .configs import *` which in some environments was shadowed by the stdlib `types` module (e.g. when `src/exception.py` ran `import types` earlier in the import order). Added 2 regression tests in `tests/test_cli.py`.
+
+### Added
+- **Docker image** at `ghcr.io/stufently/opentele-ng` — multi-arch (linux/amd64 + linux/arm64), ~140 MB, non-root user, `opentele-ng` as entrypoint. Tags: `:latest`, `:1.2.0`, `:1.2`, `:1`, `:main`, `:sha-<7>`. Built + pushed by `.github/workflows/docker.yml` on every push to `main` and on every `v*` tag.
+- **`docs/examples/docker.md`** — full Docker usage guide (info, convert, batch, air-gapped, Sigstore verification).
+- **PEP 740 attestations** on PyPI uploads — `pypa/gh-action-pypi-publish` configured with `attestations: true`. Combined with Trusted Publishing this gives end-to-end signed provenance from GitHub commit → wheel on PyPI.
+- **Build provenance + SBOM on the Docker image** — `docker/build-push-action` runs with `provenance: true` + `sbom: true`, plus `actions/attest-build-provenance` for the OCI registry. Verifiable via `gh attestation verify oci://ghcr.io/stufently/opentele-ng:1.2.0 --repo stufently/opentele`.
+- **`.github/dependabot.yml`** — weekly PRs for pip / GitHub Actions / Docker base image updates.
+- **`.github/workflows/codeql.yml`** — CodeQL static analysis on push, PR, and weekly schedule.
+- **`.github/ISSUE_TEMPLATE/`** + **`.github/pull_request_template.md`** — structured forms for bug reports, wire-format mismatches, feature requests, and PR submissions.
+- **`.pre-commit-config.yaml`** — ruff + check-yaml + detect-private-key. `pre-commit install` once → ruff/CI surprises stop. Pinned to `ruff 0.15.13` to match CI.
+- **`.github/workflows/forks-watch.yml`** + **`scripts/fork_watch.py`** — monthly (1st of month, 12:00 UTC) scan of public forks of `thedemons/opentele` for new commits. Generates a Markdown report and **opens it as a GitHub Issue** (label `forks-watch`) so it lands in the maintainer's notifications. No secrets — uses the default `GITHUB_TOKEN`.
+
+### Verified
+- `docker build -t opentele-ng:dev . && docker run --rm opentele-ng:dev info /tdata` works end-to-end on a real Telegram Desktop tdata (TD 6.0.6). `mainAccount_index` reads correctly (regression catch from 1.1.0).
+- Manual run of `python scripts/fork_watch.py` returns a clean Markdown report against the current public fork graph (1 fork with activity in last 35 days).
+- 262 tests pass on Python 3.10–3.14, coverage 94.83% on `opentele.td` (unchanged).
+
+## [1.1.0] - 2026-05-20 — CLI, pyproject.toml, Trusted Publishing, docs site
+
+First minor bump since 1.0.0. Major theme: bring the project up to modern Python packaging standards (PEP 621 pyproject, PEP 561 typing marker, Trusted Publishing) and ship a native CLI so the 80% conversion case no longer requires hand-rolled Python.
+
+### Added
+- **`opentele-ng` CLI** (entry point `opentele.__main__:main`):
+    - `opentele-ng info <tdata>` — read-only summary of accounts (UserId, DcId, AppVersion, sha256 of authKey). `--json` for machine-readable output.
+    - `opentele-ng convert <tdata> -o <session>` — convert tdata to a Telethon `.session` file. `--use-current-session` to reuse rather than create a new session; `--force` to overwrite.
+    - `opentele-ng --version`, `opentele-ng --help`.
+    - 8 new tests in `tests/test_cli.py` (argparse, exit codes, refuse-overwrite, info/convert path validation).
+- **PEP 561 typed marker** (`src/py.typed`) — IDEs and type-checkers (mypy, pyright) now pick up our type annotations. Classifier `Typing :: Typed` re-introduced.
+- **`opentele.__version__`** — read from `importlib.metadata`. Fallback `0.0.0+unknown` for editable installs without metadata.
+- **`CONTRIBUTING.md`** + **`CODE_OF_CONDUCT.md`** (Contributor Covenant 2.1).
+- **`BENCHMARKS.md`** + `scripts/benchmark.py` — pure-Python `QDataStream` measured against PyQt6 baseline. Pure-Python is 1.5–4× slower on micro-ops (which is negligible inside a real tdata load — disk + AES dominate).
+- **`docs/examples/cli-quick-start.md`** + **`docs/examples/batch-convert.md`** — two new examples covering the CLI and parallel batch conversion.
+- **`mkdocs.yml`** + **`docs/index.md`** — minimal Material-themed docs site (replaces upstream's stale Read the Docs config).
+- **`.github/workflows/publish.yml`** — automated PyPI publish via [Trusted Publishing (OIDC)](https://docs.pypi.org/trusted-publishers/) on `v*` tags. No long-lived API token in the repo.
+- **`.github/workflows/docs.yml`** — auto-build + deploy mkdocs to GitHub Pages on `main`.
+
+### Changed
+- **`setup.py` removed.** All metadata lives in `pyproject.toml` (PEP 621). Build backend is `setuptools.build_meta`, same as before.
+- **`requirements.txt`** still present for `pip install -r requirements.txt`-style dev workflows, but pyproject.toml is the single source of truth for runtime deps. Test deps moved into `[project.optional-dependencies] test = [...]` — install with `pip install -e '.[test]'`.
+- **README badges** switched from hardcoded counts to live PyPI / GitHub Actions badges (`pypi/v`, `pypi/pyversions`, `pypi/l`, CI/Lint workflow badges).
+
+### Verified
+- 262 tests pass (was 252) on Python 3.10–3.14. Coverage 94.83% on `opentele.td` (gate 90%).
+- `pip install opentele-ng==1.1.0` in fresh `python:3.13-slim`: imports clean, `opentele.__version__ == "1.1.0"`, `py.typed` shipped in the wheel, `opentele-ng --version` works as a shell command.
+- Cross-impl byte-identity check still green on 2 real tdata folders (TD 6.0.6 + TD 6.0.8).
+
+## [1.0.4] - 2026-05-20 — Packaging + metadata polish (post-publish follow-up)
+
+Zero-risk doc-level release that cleans up packaging glitches discovered after 1.0.3 went live on PyPI, plus PyPI page metadata polish (more project URLs, `Production/Stable` dev-status, additional Python implementation classifiers). No runtime behaviour change — wire-format / crypto / API surface identical to 1.0.3.
+
+### Fixed (packaging)
+- `MANIFEST.in`: added missing `include` keyword on `requirements.txt` — wheel builds from sdist were failing with `FileNotFoundError: 'requirements.txt'`. Also added explicit `include` for README.md, LICENSE, CHANGELOG.md, ACKNOWLEDGMENTS.md, SECURITY.md, `recursive-include docs/examples *.md`, and `prune tests` (sdist no longer carries half the test tree).
+
+### Changed
+- `setup.py` classifiers: `Development Status :: 4 - Beta` → `5 - Production/Stable`; added `Programming Language :: Python :: 3 :: Only` and `Programming Language :: Python :: Implementation :: CPython`.
+- `setup.py` `project_urls`: now exposes Homepage, Source, Changelog, Bug Tracker, Documentation, Security (was: only `url=` Homepage). All link to the GitHub repo, so the PyPI sidebar renders proper navigation.
+- `scripts/publish.sh` switched from host `pip install build twine` to a Docker container (`python:3.13-slim` with `--user $UID:$GID`). Resolves PEP 668 "externally-managed-environment" on modern host distros and keeps `dist/` artifacts owned by the invoking user. Token is passed via host env var (not argv) so it does not appear in `ps`; `.env` is sourced without `set -a` so secrets don't leak into `/proc/<pid>/environ`.
+
+### Verified
+- Cross-impl byte-identity check on 2 real tdata folders (TD 6.0.6 + TD 6.0.8) — `opentele-ng` matches `opentele-tg 3.13.1` (PyQt5, Ehekatech fork) and `opentele2 1.1.6` (pure-Python DedInc fork) **byte-for-byte** on `serializeMtpAuthorization()`, `authKey`, `localKey`, `UserId`, `MainDcId`. On TD 6.0.6 tdata, `opentele-tg` crashes (`No account has been loaded`) because it lacks Phase 1.5 lskTypes 0x1A-0x1E — confirms our wire-format fixes are load-bearing for current Telegram Desktop tdata in the wild.
+
+## [1.0.3] - 2026-05-20 — DoS fix in MapData count loops (security)
+
+Closes the **DoS vulnerability** documented in 1.0.2's `tests/test_dos_protection.py` xfail canaries. Phase 1.0.2 found that several count-driven loops in `MapData.read()` and `Account._setMtpAuthorization.readKeys()` had no upper-bound check on attacker-controlled `count` fields — a malformed tdata blob with `count = 0xFFFFFFFF` (~4 billion iterations) would spin for minutes consuming CPU before the trailing `ExpectStreamStatus` finally tripped.
+
+### Fixed (security)
+- **`MapData.read()`**: pre-loop `count` cap by `stream.bytesAvailable() // pair_size` in:
+  - `lskDraft` branch (16 bytes/pair: FileKey + PeerId)
+  - `lskDraftPosition` branch (16 bytes/pair)
+  - `lskLegacyImages` / `lskLegacyStickerImages` / `lskLegacyAudios` branch (28 bytes/pair: 3 × uint64 + int32)
+  - `lskBotStorages` branch (16 bytes/pair)
+- **`Account._setMtpAuthorization.readKeys()`**: pre-loop cap on `key_count`. Each AuthKey is `int32 dcId + 256-byte key = 260 bytes`. Refuses to allocate unbounded loop if declared count exceeds remaining buffer.
+- All guards raise `TDataReadMapDataFailed` / `QDataStreamFailed` early so `TDesktop.__loadFromTData`'s existing `except OpenTeleException` swallow path handles it cleanly (corrupt tdata → "No account has been loaded" instead of multi-minute CPU spin).
+
+### Added
+- **`QDataStream.bytesAvailable()`** (`src/td/qdatastream.py`) — delegates to `device.bytesAvailable()`. Returns 0 if no device or device exhausted. Used by the new `_GuardCount` helper.
+- **`_GuardCount(count, pair_bytes, stream, key_name)`** helper at module top of `src/td/account.py`. Compact, reusable, descriptive error message includes declared count + available bytes + max pairs.
+
+### Test impact
+- 5 xfail security canaries in `tests/test_dos_protection.py` automatically flip to `PASSED` (they were already designed to do so: `time.perf_counter() < 0.5s + raise observed → assert raised`). No test code modification needed.
+- 247 tests pass on Python 3.10–3.14 (6 DoS canaries now all PASS instead of 5 xfail + 1 pass).
+- Coverage stable at **94.89%** on `opentele.td` (gate 90%).
+
+### Compatibility
+- Legitimate large `count` values (e.g. a real Telegram Desktop user with hundreds of drafts) still load: the cap is by `bytesAvailable` not a hardcoded limit, so any valid tdata where `count * pair_size ≤ remaining bytes` passes through unchanged. Only **malformed** blobs are rejected.
+
+## [1.0.2] - 2026-05-20 — Test hardening (3-AI consultation)
+
+Phase 1.0.2 follows up on the Codex/Cursor/Gemini consultation after 1.0.1 shipped. Focus is purely on test coverage and dead-code removal — no behaviour changes to the production read/write paths.
+
+### Added
+- **`tests/qdatastream/test_pure_errors.py`** (38 tests) — error-path coverage for `opentele.td.qdatastream`. The existing `tests/qdatastream/test_primitives.py` etc. used PyQt6 as the oracle and never touched our pure-Python error paths. This file directly exercises:
+  - EOF on every fixed-width `readUInt*`/`readInt*` (parametrized 8 ways)
+  - Status stickiness across reads + `resetStatus()` semantics
+  - `QDataStream()` without device → ReadPastEnd / WriteFailed
+  - `readRawData(n > available)` → short read + ReadPastEnd
+  - `readQString` malformed (truncated prefix, oversized payload, odd UTF-16 byte count, isolated surrogate, null/empty markers)
+  - `stream >> QByteArray` malformed — **security: huge declared size with short payload does NOT pre-allocate 4 GB**
+  - QByteArray null vs empty marker semantics
+  - QBuffer edges (None backing, negative seek, read past EOF)
+  - QFile edges (missing path, invalid mode, closed-file stability, WriteOnly does NOT auto-create parent dirs — pinned the doc-comment behaviour Codex flagged as misleading)
+  - `QDataStream(<wrong type>)` → TypeError
+  - QDir helpers
+- **`tests/test_dos_protection.py`** (6 tests, 5 xfail + 1 sanity pass) — **SECURITY**. Confirms a real DoS vulnerability in `MapData.read()` and `Account._setMtpAuthorization()`: malformed encrypted payloads with `count=2_000_000` and no following payload cause millions of no-op loop iterations (seconds-to-minutes of CPU depending on Python version) before the trailing `ExpectStreamStatus` raises. Tests use wall-clock measurement (`time.perf_counter()`) with a 0.5s budget — calls exceeding the budget mark themselves as xfail via in-test `pytest.xfail()` (works identically across Python 3.10-3.14). The sanity test (`test_mapdata_zero_count_does_not_loop`) confirms the test infrastructure isn't artificially slow on the happy path. Once Phase 1.0.3 fixes `MapData.read` to bail on stream-status mismatch inside the count loop, all 5 xfails will flip to expected pass.
+- **`tests/test_account_property_smoke.py`** (6 tests) — trivial getter/setter coverage for `Account.keyFile`, `Account.localKey`, `Account.MtpConfig`, `Account.isAuthorized()` (account.py lines 842, 846-847, 854, 884, 891).
+- **`tests/test_tdesktop_lifecycle.py`** (7 tests) — `PerformanceMode` toggle, `api` setter propagation to accounts, `AppVersion` property pre/post `LoadTData`, passcode-protected save/load roundtrip (exercises the non-performance-mode key-derivation branch at tdesktop.py:354-376), wrong-passcode → `TDataBadDecryptKey`.
+
+### Removed (dead code)
+- **`account.py:1004-1005`** — unused nested helper `def keysSize(list):` inside `serializeMtpAuthorization`. Both Codex and Cursor flagged it as never-called. Removed; saves ~2 coverage lines.
+
+### Dependencies
+- Added `pytest-timeout>=2.1` to `requirements-test.txt` (test-only, not a runtime dep).
+
+### Coverage
+- 186 → **247 tests passing** (61 new + 5 documented xfail).
+- `opentele.td` aggregate coverage: 88.69% → **94.99%**.
+  - `account.py`: 95% → **100%**
+  - `qdatastream.py`: 79% → **91%**
+  - `tdesktop.py`: 92% → **97%**
+- All 5 Python versions (3.10-3.14) green with the 85% CI gate.
+- CI gate ready to be ratcheted from 85% to **90%** safely (92% if user
+  accepts the qdatastream.py 91% as the new floor).
+
+### Known bugs documented (fix in 1.0.3)
+- **DoS via unbounded count loops** in `MapData.read` (lskDraft/lskDraftPosition/lskBotStorages/lskLegacyImages branches) and `Account._setMtpAuthorization` `readKeys()`. See `tests/test_dos_protection.py` xfail markers. 3-AI consultation needed on fix location.
+
+## [1.0.1] - 2026-05-19 — opentele-ng Phase 5.1 (_settingsKey magic removed)
+
+Phase 5 deferred the upstream ``_settingsKey = FileKey(1851671142505648812)`` hardcoded magic constant fix because doing both the code change AND the test change would have violated Phase 4's "168 tests without modification" acceptance contract. With Phase 5 shipped, 1.0.1 closes that loop.
+
+### Fixed
+- **Removed upstream ``_settingsKey = FileKey(1851671142505648812)`` magic** from ``MapData.__init__``. The constant existed only to pad the encrypted descriptor past AES-IGE256's "data must be multiple of 16 bytes" requirement when the rest of MapData was empty. Default ``_settingsKey`` is now plain ``FileKey(0)``.
+- **``Storage.PrepareEncrypted`` AES alignment for empty payloads**: when ``data.size() == 0`` the function now encodes the minimal valid upstream-readable ``dataLen=4`` size marker (which is what both upstream TDesktop and ``DecryptLocal``'s ``dataLen < 4`` guard require) and pads to a 16-byte AES block. Empty ``MapData`` (no lskType keys, no drafts, no bot storages) now writes and reads back correctly.
+
+### Tests
+- ``test_settingsKey_default_is_zero_no_more_magic`` — pins new default.
+- ``test_empty_mapdata_with_zero_settingsKey_now_writes_successfully`` — Phase 4's "this fails" test is now "this succeeds".
+- ``test_settingsKey_zero_works_alongside_other_keys`` — kept as regression guard.
+- 186 tests total (was 185), coverage 77.34% on ``opentele.td``.
+
+## [1.0.0] - 2026-05-19 — opentele-ng Phase 5 (Pure-Python QDataStream, drop PyQt6)
+
+**USP / breaking dependency change:** opentele-ng no longer requires PyQt6 at
+runtime. The handful of Qt classes opentele actually used (``QDataStream``,
+``QByteArray``, ``QBuffer``, ``QFile``, ``QDir``, ``QSysInfo``,
+``QIODevice.OpenModeFlag``) are now provided by ``opentele.td.qdatastream``,
+a stdlib-only (``struct`` / ``pathlib`` / ``platform``) module that produces
+byte-identical output with PyQt6's Qt_5_1 binary format.
+
+This means:
+
+* **No system Qt libraries needed.** Install opentele-ng on minimal Linux
+  containers / Alpine / serverless without ``libgl1`` / ``libegl1`` /
+  ``libxkbcommon-x11-0`` etc.
+* **Python 3.14 first-class.** PyQt6 6.6+ does support 3.14, but with extra
+  system-deps friction; pure-Python avoids that.
+* **Smaller install footprint.** ``telethon + tgcrypto-pyrofork`` only — no
+  ~50 MB Qt wheels.
+* **PyPy / experimental interpreters** become reachable.
+
+### Added
+- **``src/td/qdatastream.py``** — 600+ lines of byte-identical pure-Python
+  replacements:
+  - ``QByteArray(bytearray)`` — preserves ``isNull()`` semantics while
+    inheriting buffer protocol so ``hashlib.sha1(qba)`` and
+    ``tgcrypto.ige256_encrypt(qba, ...)`` work unchanged.
+  - ``QDataStream`` Qt_5_1 wire format: big-endian fixed-width int8/16/32/64,
+    uint variants, ``writeInt32`` two's complement, ``QString`` as
+    ``uint32 size_in_bytes + UTF-16-BE``, ``QByteArray`` as
+    ``uint32 size + payload`` with ``0xFFFFFFFF`` null marker and
+    ``0x00000000`` empty marker, ``readRawData`` / ``writeRawData`` verbatim.
+  - ``QBuffer`` — cursor over a ``QByteArray`` (read/write, seek, pos,
+    isOpen, atEnd).
+  - ``QFile`` — open()-backed file wrapper.
+  - ``QDir`` — pathlib wrapper (exists / mkpath).
+  - ``QSysInfo.Endian.ByteOrder`` — host byte order detected at import time
+    so the md5 fingerprint in ``FileWriteDescriptor.writeData`` matches what
+    TDesktop produces on the same host.
+
+### Changed
+- **``requirements.txt``**: removed ``PyQt6>=6.6``. Runtime deps reduced to
+  ``telethon>=1.36,<2`` + ``tgcrypto-pyrofork>=1.2.7``.
+- **``requirements-test.txt``**: kept ``PyQt6>=6.6`` as a **test-only**
+  dependency. The 40+ tests in ``tests/qdatastream/`` use PyQt6 directly as
+  the byte-identity oracle against the pure-Python replacement.
+- ``src/exception.py``: imports ``QDataStream`` from
+  ``opentele.td.qdatastream`` instead of ``PyQt6.QtCore``.
+- ``src/td/configs.py``: same rewire for ``QBuffer``, ``QByteArray``,
+  ``QDataStream``, ``QDir``, ``QFile``, ``QIODevice``, ``QSysInfo``.
+- ``setup.py``: version 0.4.0 → **1.0.0** (major bump, breaking dep change).
+  Description updated with the no-Qt USP. Classifier
+  ``Development Status`` 4-Beta → 5-Production/Stable.
+
+### Acceptance criteria met
+- All 168 existing Phase 4 tests pass **without modification** — this was
+  the safety-net contract of Phase 4 (40 goldens + property-based fuzzing
+  + real ``MapData`` roundtrips). Verified on Python 3.10/3.11/3.12/3.13/3.14.
+- ``opentele.td`` package coverage: **76.70%** (gate 75% — passes; Phase 4 was 78%, slight drop expected due to new 769-line qdatastream.py with error-handling branches not exercised by valid tdata fixtures).
+- ``pip install opentele-ng`` installs without PyQt6 in transitive deps.
+- ``ruff check src/ tests/`` clean.
+
+### Known deviation from spec
+- The ``MapData._settingsKey = FileKey(1851671142505648812)`` hardcoded
+  magic constant is **kept as-is** because the Phase 4 test
+  ``test_settingsKey_is_required_when_map_is_otherwise_empty`` *expects*
+  ``ValueError`` when the map is empty + ``_settingsKey=0`` (which proves
+  the magic is still load-bearing). Replacing it with AES-padding in
+  ``EncryptedDescriptor`` is left for a future minor release that can also
+  update that test in the same commit. The Phase 5 acceptance criterion of
+  "all 168 tests pass without modification" rules out doing both at once.
+
+### PyQt6 status post-Phase-5
+- **Runtime:** not installed, not imported, not in ``install_requires``.
+- **Test-time only:** ``tests/qdatastream/`` and several ``tests/test_account_*``
+  modules import ``PyQt6.QtCore`` directly to compare bytes against the new
+  pure-Python implementation. CI install path is ``pip install -e . &&
+  pip install -r requirements-test.txt``.
+
+## [0.4.0] - 2026-05-19 — opentele-ng Phase 4 (test infrastructure / TDD safety net)
+
+Phase 4 builds the safety net required before Phase 5 can drop PyQt for a pure-Python QDataStream rewrite. **48 new tests** — golden bytes for every QDataStream primitive, property-based fuzzing via hypothesis (~1000 random cases per run), and real `TDesktop.SaveTData → load` roundtrips through `MapData.prepareToWrite()`.
+
+### Added
+- **`tests/qdatastream/`** (3 files, 40 tests):
+  - `test_primitives.py` (21 tests) — golden byte layouts for `writeUInt8/16/32/64`, `writeInt32/64` (two's complement), status semantics (`Ok`/`ReadPastEnd`). Verifies Qt_5_1 big-endian, fixed sizes (uint32 always 4 bytes, uint64 always 8 bytes).
+  - `test_qbytearray.py` (11 tests) — `QByteArray` 4-byte size prefix, null-marker (`0xFFFFFFFF` = default-constructed), empty payload, binary payloads with null bytes, large 10KB roundtrip, two-`QByteArray` stream layout (lskWebviewTokens pattern).
+  - `test_property_based.py` (8 tests) — `hypothesis` fuzzing: uint64/int32 lists, mixed-type streams, QByteArray with random binary up to 4KB. ~1000 cases per test invocation.
+- **`tests/mapdata/test_real_roundtrip.py`** (8 tests) — real `TDesktop.SaveTData(tmp_path)` → fresh `TDesktop(basePath=tmp_path)`:
+  - empty roundtrip
+  - synthetic scalar lskType keys (`_locationsKey`, `_trustedBotsKey`, ..., and Phase 1.5 keys `_prefsKey`/`_roundPlaceholder`/`_inlineBotsDownloads`/`_mediaLastPlaybackPositions`)
+  - `_webviewStorageToken*` QByteArray payloads byte-identical
+  - `_botStoragesMap` Dict[PeerId, FileKey]
+  - `_draftsMap` / `_draftCursorsMap`
+  - documents `_settingsKey = FileKey(1851671142505648812)` magic — actually load-bearing: empty `EncryptedDescriptor` produces 0-byte payload that fails `tgcrypto.ige256_encrypt` with "data must be multiple of 16 bytes"; the magic gives ≥12 bytes so AES padding works. Phase 5 task: replace with `td.Storage.RandomGenerate(8)` or pad empty maps to AES block.
+- **`requirements-test.txt`** — pinned dev deps: `pytest ≥7`, `pytest-cov ≥4`, `pytest-asyncio ≥0.21`, `hypothesis ≥6`, `ruff ≥0.5`.
+- `Dockerfile.test` now copies `docs/` so QR docs tests don't break.
+
+### Coverage
+- `opentele.td` package coverage: **~78%** (whole package, including legacy mtp.py DcOptions code which is 38% covered). CI gate set to **75%** (honest threshold post Phase 4.5 measurement). Phase 5 can raise it as the rewrite forces broader coverage.
+- Total tests: 98 → **146** (+48).
+- All green on Python 3.10/3.11/3.12/3.13/3.14 Docker matrix.
+
+### Phase 5 readiness
+- Every `QDataStream` operation `src/td/` uses is covered by goldens or property tests.
+- Pure-Python rewrite in Phase 5 must produce byte-identical output for these tests **without any test-code modification** — that's the acceptance criterion.
+
+## [0.3.0] - 2026-05-19 — opentele-ng Phase 3 (multi-account + kwargs + nuitka + QR docs + linter)
+
+Phase 3 picks up the QoL fixes from `snakechilds/opentele-nuitka` and `Ehekatech/opentele-tg`, plus replaces the broken upstream pylint workflow with ruff. The 3-AI prep review (Codex) corrected scope before implementation:
+- `kMaxAccounts` → 6 (TDesktop's premium account limit), not 100 (snakechilds' value makes no sense — Telegram Desktop itself caps at 6).
+- Unknown `lskType` fail-fast deferred to Phase 4 — current `logging.warning` already desyncs the stream; switching to `raise` without first knowing payload size for unknown keys is risky.
+
+### Added
+- **`TDesktop.kMaxAccounts = 6`** — was hardcoded 3 in upstream. Matches Telegram Desktop's `kPremiumMaxAccounts` from `main_domain.h`. Real-world Premium users can now load all 6 accounts from a single tdata folder.
+- **`**kwargs` forwarding** in `TDesktop.FromTelethon` and `Account.FromTelethon` — Telethon-specific options (proxy, connection, timeout) now flow through to `QRLoginToNewClient` without bridge-layer modification. Source: snakechilds/opentele-nuitka commit `073329c`, adapted with `**kwargs` rather than `kwargs: dict = None`.
+- **`docs/examples/qr-login.md`** (+115 lines) — full QR-code login example: minimal flow, 2FA branch, tdata conversion, kwargs forwarding for proxy/connection. Source: Ehekatech/opentele-tg commit `c7550ba`, expanded with Phase 3 context.
+- **Ruff workflow** (`.github/workflows/lint.yml`) — replaces broken upstream `pylint.yml` (Python 3.7, EOL). Runs `ruff check src/ tests/` on push/PR.
+- **`.ruff.toml`** with conservative rule set tailored to upstream code style (ignores `E711`, `E731`, `W293`, `F401`, etc. — patterns we don't want to mass-rewrite). Strict on new code added in Phase 1+.
+- **6 new Phase 3 tests** (`tests/test_phase3_features.py`) covering kMaxAccounts, kwargs forwarding, sharemethod nuitka fix, QR docs existence.
+- Total: 92 → 98 tests, all green on Python 3.10–3.14 Docker matrix.
+
+### Changed
+- **`utils.sharemethod.__new__`** — `clsName = func.__class__.__name__`, `bases = func.__class__.__bases__`, `attrs = func.__dict__` → stable literals `"function"`, `(object,)`, `{}`. The dynamic form broke Nuitka compilation (snakechilds `eb4ff4d`). Runtime behavior unchanged — the synthetic class name/bases don't matter, the descriptor wraps the function regardless.
+- **MaxAccountLimit error message** now interpolates current `kMaxAccounts` (was hardcoded `"more than 3"`).
+- **Imports across 30 files** auto-sorted by ruff (cosmetic, no behavior change).
+- Removed `.github/workflows/pylint.yml` (upstream, broken: targets Python 3.7 which is EOL on GitHub-hosted runners).
+
+### Process
+- 3-AI prep review (Codex / Cursor / Gemini) before Phase 3 implementation; Codex caught the `kMaxAccounts=100` and unknown-keyType scope issues. Gemini hit rate limit, Cursor failed twice in this batch (network) — Codex review carried the gate.
+- Linter integrated into Docker test image + CI; ruff `check` enforced, format not enforced (preserves upstream code as-is).
+
+## [0.2.1] - 2026-05-19 — opentele-ng Phase 2.5 (fingerprint review fixes)
+
+Three independent AI code reviews (Codex, Cursor, Gemini) on `v0.2.0-phase2` flagged 4 critical and several high/medium issues. Phase 2 added device lists but the `__gen__()` methods didn't actually use them — `RandomDevice()` produced legacy 2017-2022 phones paired with Android 16 SDK. Phase 2.5 fixes the runtime generation layer.
+
+### Fixed (critical)
+- **`macOSDevice.system_versions`** — restored `"macOS X.Y"` prefix (Phase 2 init stripped it, producing bare `"26.0"`). TDesktop `SystemVersionPretty()` returns prefixed form; without it, fingerprint regressed below Phase 1.5 quality.
+- **`macOSDevice.__gen__`** — `FromIdentifier` parser stripped digits/punctuation from new clean-name strings, collapsing `"Mac16,9 (MacBook Air M4 13-inch)"` → `"MacMacBook Air Minch"`. Now applies only to legacy board IDs (`"MacBookPro16,4"` style); clean names pass through.
+- **`AndroidDevice.__gen__`** — was iterating legacy 4500-model list × SDK 33-37 (unrealistic: 2017 Redmi + Android 17). Now uses `device_models_by_sdk` pairing (modern flagships only). Legacy `device_models` retained as fallback for unforeseen consumers.
+- **Mac M5 identifiers**: dropped guessed `Mac17,3 (M5 base)` / `MacBookPro18,3-5 (M5 series)` — instead store clean marketing names (`"MacBook Pro 14-inch M5 Max"`) since TDesktop `initConnection.device_model` sends marketing strings, not board IDs.
+
+### Fixed (high)
+- **Galaxy S26 SM codes**: removed duplicate `SM-S931` shared with S25 base. S26 series now `SM-S941` (base), `SM-S946` (+), `SM-S948` (Ultra) — consistent with Samsung's `SM-S9X1/X6/X8` series naming.
+- **`API.TelegramAndroid.device_model`**: unified with `device_models_modern` — was `"Samsung SM-S938"` (raw SKU), now `"Samsung Galaxy S25 Ultra (SM-S938)"` (matches marketing+SKU pattern Telegram Android sends).
+
+### Fixed (medium)
+- **`API.TelegramAndroidX.app_version`** — `12.6.0 (6500)` was Android-mainline format; Telegram X (TGX) uses distinct pattern `0.X.Y.Z-arm64-v8a`. Now `"0.27.5.1842-arm64-v8a"`. Source: Paramon `c0d8085`.
+- **`API.TelegramMacOS`** — `8.4 / macOS 12.0.1 / MacBook Pro` (2022 stale) → `11.13 / macOS 26.0 / MacBook Pro 14-inch M5`.
+- **Intel Macs added** to `macOSDevice.device_models` for backward fingerprint diversity (iMac Pro, iMac Retina 5K 27 2020, Mac mini 2018, MBP 16 2019, MBP 13 2020) — Apple's compatibility list for macOS Tahoe.
+
+### Added (tests)
+- **12 new runtime tests** in `tests/test_devices_runtime.py` covering actual `RandomDevice()` and `API.*.Generate()` output (not just static list contents):
+  - `test_macOSDevice_random_model_has_no_FromIdentifier_corruption` (catches `"Minch"`, `"MacMac"`)
+  - `test_AndroidDevice_random_uses_modern_devices_not_legacy_4500_list`
+  - `test_macOSDevice_system_versions_have_macOS_prefix`
+  - `test_telegram_desktop_macos_generate_returns_macos_prefix`
+  - `test_AndroidDevice_random_system_version_is_modern_sdk` (SDK ≥ 33)
+  - plus iOS / Windows runtime smoke
+- Total: 79 → 91 tests, all green on Python 3.10–3.14 (Docker matrix).
+
+### Review process
+- Round 1 review: Codex (verified C++ via `gist.githubusercontent.com/adamawolf/3048717` + Apple Support), Cursor (deep diff against `__gen__`), Gemini (FromIdentifier failure mode analysis). All three agreed: do not push Phase 2 as-is.
+
+## [0.2.0] - 2026-05-19 — opentele-ng Phase 2 (2026 device fingerprints)
+
+Phase 2 brings device/OS/app-version fingerprints up to **May 2026**: 7 months past Paramon's 2025-10 baseline, 4 years past upstream `thedemons/opentele` (2022).
+
+### Added
+- **`API.TelegramDesktop._generate_tdesktop_app_version(unique_id=None)`** — random or deterministic (sha1-based by `unique_id`) Telegram Desktop version picker. Source list `TELEGRAM_DESKTOP_VERSIONS` covers v5.16.0 (Jul 2025) through v6.8.2 (May 2026), ~55 versions. Source: Paramon/opentele patterns (`de639ac` + `41f3ea5`), adapted with 2026 release data.
+- `iOSDevice` proper class name; `iOSDeivce` kept as alias for backward compat (upstream typo).
+- `AndroidDevice.device_models_by_sdk` — Dict[str, List[str]] mapping SDK 33-37 to realistic devices supporting that Android version (Ehekatech pattern).
+- 25 new tests covering modern device fingerprints + version generation (`test_devices_modern.py`, `test_api_app_versions.py`).
+
+### Changed
+- **macOS**: dropped 10.x–13.x (EOL). Now: 14.x Sonoma, 15.x Sequoia, **26.x Tahoe** (Sept 2025+).
+- **macOS devices**: dropped pre-M1 Intel Macs (no macOS 14+ support). Added M2, M3, M4, **M5/M5 Pro/M5 Max** (Oct 2025 / Mar 2026), MacBook Air M5 (Spring 2026).
+- **iOS**: dropped 12-17 (legacy). Now: **iOS 18** (Apple Intelligence, Sep 2024+) and **iOS 26** (Liquid Glass redesign, Sep 2025+, Apple skipped 19-25 numbering).
+- **iOS devices**: dropped iPhone 11 and below. Added **iPhone 17 / 17 Pro / 17 Pro Max / iPhone Air** (Sep 2025), iPhone 16/16e (Sep 2024), 15 series; kept 14 / 13 Pro Max / SE 3rd gen for compatibility.
+- **Android SDK**: dropped SDK 23-32 (Android 6-12). Now: SDK 33-37 (Android 13 → Android 17 beta).
+- **Android devices**: added 2024-2026 flagships — **Galaxy S25 series + S25 Edge + S25 FE** (Jan-Sep 2025), **Galaxy S26 series** (Mar 11, 2026), **Pixel 10 / Pro / Pro XL** (Aug 2025), **OnePlus 12/13**, **Xiaomi 14 Pro / 15 / 15 Pro**.
+- **Windows**: dropped 7/8/8.1 (EOL). Now: Windows 11, Windows 10.
+- **`API.TelegramDesktop.app_version`**: `3.4.3 x64` → `6.8.2 x64`.
+- **`API.TelegramAndroid.app_version`**: `8.4.1 (2522)` → `12.6.0 (6500)`; `device_model`: `Samsung SM-G998B` (S21) → `Samsung SM-S938` (S25 Ultra); `system_version`: `SDK 31` → `SDK 36`.
+- **`API.TelegramAndroidX.app_version`**: same modern Galaxy S25 fingerprint.
+- **`API.TelegramIOS.app_version`**: `8.4` → `12.7`; `device_model`: `iPhone 13 Pro Max` → `iPhone 17 Pro Max`; `system_version`: `14.8.1` → `26.0`.
+- `TelegramDesktop.Generate(unique_id=...)` now produces random/deterministic `app_version` from the v5.16-v6.8 list, not the hardcoded default.
+
+### Sources
+- Paramon/opentele commits: `2fb902c`, `1cf069a`, `c0d8085`, `6e69836`, `41f3ea5`, `de639ac`
+- Telegram Desktop releases: `github.com/telegramdesktop/tdesktop/releases` (v5.16.0 → v6.8.2)
+- Apple device identifiers: `gist.github.com/adamawolf/3048717` (iPhone18,1–iPhone18,4 confirmed)
+- Apple M5 / M5 Pro / M5 Max: Wikipedia (Oct 2025 / Mar 2026)
+- Samsung Galaxy S26: Wikipedia (Mar 11, 2026; Android 16 / OneUI 8.5)
+- Android API levels: `apilevels.com` (SDK 36 = Android 16 stable, SDK 37 = Android 17 beta)
+
+## [0.1.1] - 2026-05-19 — opentele-ng Phase 1.5 (review fixes)
+
+After three independent AI code reviews (Codex, Cursor, Gemini), Phase 1's "fresh tdata read" implementation had wire format mismatches with upstream Telegram Desktop `storage_account.cpp`. Phase 1.5 fixes them.
+
+### Fixed (critical)
+- **`lskWebviewTokens` (0x19)**: was read/written as two `uint64`; upstream TDesktop is **two `QByteArray`** (token data, not file keys). Phase 1.5 uses `stream >> QByteArray` and `td.Serialize.bytearraySize()` for size accounting. Without this fix, any tdata with non-empty webview tokens would desync the stream.
+- **`lskBotStorages` (0x1D)**: was read/written as single `uint64`; upstream TDesktop is **map**: `uint32 count + count × (uint64 FileKey, uint64 PeerId)`. Phase 1.5 uses `Dict[PeerId, FileKey]` (analogous to `_draftsMap`). Without this fix, all bot-storage entries were silently dropped + offset shift propagated to subsequent keys.
+
+### Added
+- **`lskPrefs` (0x1E)**: missed by Phase 1 init. Wire format: `uint64 prefsKey` (like `lskLocations`). Without this key, any tdata with `_prefsKey` set would hit the `else: logging.warning(...)` branch and desync.
+- Full MapData stream roundtrip test (`tests/test_account_mapdata_full_roundtrip.py`) — writes and reads 5 new keys consecutively, verifies stream ends cleanly (`stream.atEnd() && status == Ok`).
+- `tests/test_account_lskWebviewTokens_wire_format.py`, `tests/test_account_lskBotStorages_wire_format.py`, `tests/test_account_lskPrefs.py` — per-key wire format guards.
+- `tests/test_dependencies_smoke.py` — `tgcrypto-pyrofork` AES-IGE roundtrip on 16/32/64/128/256 byte payloads + telethon version assertion.
+- `tests/test_utils_extend_class_strict.py` — strict-mode / soft-mode coverage.
+- `tests/test_utils_extend_class_validation.py` — `@extend_class` rejects non-classes with `TypeError`.
+- `ACKNOWLEDGMENTS.md` — credits to upstream and contributing forks.
+- `OPENTELE_EXTEND_STRICT=0` env flag — switches `@extend_class` to soft mode (RuntimeWarning); default is strict (TypeError on conflicts).
+
+### Changed
+- `@extend_class` now **strict by default**: real attribute conflicts (not PEP 749 dunders) raise `TypeError`, not `RuntimeWarning`. Use `OPENTELE_EXTEND_STRICT=0` for the old behavior.
+- `@extend_class` validates `decorated_cls` (not `cls`), since `cls` is always the metaclass `type`.
+- `requirements.txt`: pinned `telethon<2` upper bound until Telethon 2.x compatibility is verified.
+- README: marked Python 3.14 support as experimental (3.14 itself is still in active development as of 2026-05).
+- setup.py description and keywords aligned with corrected lskType semantics.
+
+### Total
+44 → 52 tests, all green on Python 3.10/3.11/3.12/3.13/3.14 (Docker matrix).
+
+## [0.1.0] - 2026-05-19 — opentele-ng Phase 1
+
+### Added
+- Python 3.13 / 3.14 support: расширен `crossDelete` в `extend_class` для новых dunder-атрибутов из PEP 749 (`__firstlineno__`, `__static_attributes__`); добавлено `__func__`-based сравнение bound methods (закрывает edge-case с меняющимся `id()`); fail-soft (warning вместо `raise BaseException`) на конфликт атрибутов. (источник: azamtoiri)
+- 4 новых `lskType` для tdata формата Telegram Desktop 5.x – 6.x: `lskRoundPlaceholder` (0x1A), `lskInlineBotsDownloads` (0x1B), `lskMediaLastPlaybackPositions` (0x1C), `lskBotStorages` (0x1D) — чтение и запись. (источник: RobertAzovski)
+- Docker-based test harness (`Dockerfile.test`) и pytest smoke suite (`tests/test_imports.py`, `test_utils_extend_class.py`, `test_configs_lskType.py`, `test_account_*.py`).
+- GitHub Actions CI matrix: Python 3.10/3.11/3.12/3.13 × Ubuntu/macOS/Windows + Python 3.14 на Ubuntu.
+
+### Changed
+- Зависимости: `PyQt5` → `PyQt6 >= 6.6`.
+- Зависимости: `tgcrypto` → `tgcrypto-pyrofork >= 1.2.7` (tgcrypto заброшен с 2022).
+- `telethon >= 1.36` минимум.
+- Имя пакета на PyPI: **`opentele-ng`**. Import name остаётся `opentele` для backward compatibility.
+- `setup.py`: UTF-8 encoding при чтении `README.md` (фикс для Windows). `python_requires=">=3.10"`.
+
+### Fixed
+- `src/td/account.py:186` — невалидный Python `map.stream >> legacyBackgroundKeyDay` в обработке `lskBackgroundOldOld` заменён на корректный `legacyBackgroundKeyDay = map.stream.readUInt64()`. (источник: Snowing)
+- `src/td/account.py` `lskWebviewTokens` — conflict-resolution артефакт (`is_finished = True` вместо чтения данных) теперь корректно читает `webviewStorageTokenBots` и `webviewStorageTokenOther`. До фикса любой ключ после `lskWebviewTokens` в tdata игнорировался. **Note:** в Phase 1 init wire format был ошибочно реализован как два `readUInt64()` — это исправлено в Phase 1.5 (v0.1.1) на два `QByteArray` после сверки с TDesktop C++ source.
+
 ## [v1.15](https://pypi.org/project/opentele/1.15/) - 2022-01-27
 
 - Massive performance upgrade, UseCurrentSession is now 200x faster than before.

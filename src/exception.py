@@ -1,8 +1,10 @@
 from __future__ import annotations
+
 import inspect
-import types
+import types as _stdlib_types  # private alias: star-imports must not shadow telethon.types in src/tl/*
 import typing
-from PyQt5.QtCore import QDataStream
+
+from opentele.td.qdatastream import QDataStream
 
 
 class OpenTeleException(BaseException):  # nocov
@@ -12,7 +14,7 @@ class OpenTeleException(BaseException):  # nocov
 
     def __init__(self, message: str = None, stack_index: int = 1) -> None:
 
-        super().__init__(message if (message != None) else "")
+        super().__init__(message if (message is not None) else "")
 
         self.message = message
         self.desc = self.__class__.__name__
@@ -44,11 +46,11 @@ class OpenTeleException(BaseException):  # nocov
     def __str__(self):
         reason = self.desc.__str__()
 
-        if self.message != None:
+        if self.message is not None:
             reason += f": {self.message}"
 
         reason += " [ Called by "
-        if self._caller_class != None:
+        if self._caller_class is not None:
 
             parent_list = []
             base = self._caller_class
@@ -214,6 +216,30 @@ class NoInstanceMatched(OpenTeleException):
     """
 
 
+class PyrogramNotInstalled(OpenTeleException):
+    """
+    Pyrogram is an optional dependency and is not installed.
+
+    Install it with ``pip install opentele-ng[pyrogram]`` (or any Pyrogram
+    distribution that provides the ``pyrogram`` package: pyrofork, kurigram).
+    """
+
+
+class PyrogramUnauthorized(OpenTeleException):
+    """
+    The Pyrogram client has no authorization to convert — no ``auth_key`` in
+    its storage, so there is no session to turn into ``tdata``.
+    """
+
+
+class PyrogramSessionUnsupported(OpenTeleException):
+    """
+    The Pyrogram session cannot be represented as ``tdata``: a test-DC session
+    (tdata here always carries the production MTP config) or a bot session
+    (Telegram Desktop cannot sign in as a bot).
+    """
+
+
 @typing.overload
 def Expects(
     condition: bool,
@@ -295,32 +321,32 @@ def Expects(
 ) -> bool:  # nocov
 
     if condition:
-        if done != None:
+        if done is not None:
             done()
         return condition
 
     if isinstance(exception, str):
         exception = OpenTeleException(exception, 2)
 
-    elif exception != None and not isinstance(exception, OpenTeleException):
+    elif exception is not None and not isinstance(exception, OpenTeleException):
         raise OpenTeleException("No instance of Expects() match the arguments given", 2)
 
-    if exception == None:
+    if exception is None:
         exception = OpenTeleException("Unexpected error", 2)
 
     # no raise exception
     if silent:
-        if fail != None:
+        if fail is not None:
             fail(exception)
         return condition
 
     else:
         stack = inspect.stack()
         frame = stack[stack_index].frame
-        tb = types.TracebackType(None, frame, frame.f_lasti, frame.f_lineno)  # type: ignore
+        tb = _stdlib_types.TracebackType(None, frame, frame.f_lasti, frame.f_lineno)  # type: ignore
         exception = exception.with_traceback(tb)
 
-        if fail != None:
+        if fail is not None:
             fail(exception)
 
         raise exception

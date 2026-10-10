@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install system deps (Linux only — PyQt6 needs libgl/libglib)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 libglib2.0-0
+
+      - name: Install package + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install -r requirements-test.txt
+
+      - name: Run tests (excluding live tdata_test.py)
+        # Coverage scope is the whole `opentele` package, not just `opentele.td`,
+        # so gaps in CLI/tl/api also show up in the report.
+        #
+        # Gate is 78%. It reads LOWER than the pre-1.3.2 "80%" but measures
+        # roughly twice as much code: `.coveragerc` used to exclude bare
+        # `pass` / `raise` / `except` / `nocov`, which dropped every error path
+        # and whole classes (MapData, MTP, extend_class) out of the
+        # denominator — 1745 statements counted out of ~3160. The slack covers
+        # `tl/telethon.py` QR-login paths that need network and the CLI, which
+        # is exercised through subprocesses coverage cannot see.
+        run: pytest -v --tb=short --ignore=tests/tdata_test.py --cov=opentele --cov-report=term-missing --cov-fail-under=78 tests/
+
+      - name: Wheel install smoke (catches package-data drift)
+        # Editable install hides MANIFEST.in / package-data bugs. Build a real
+        # wheel, install into a fresh venv, and import — this is what end
+        # users actually do via `pip install opentele-ng`.
+        if: runner.os == 'Linux'
+        run: |
+          python -m pip install --upgrade build
+          python -m build --wheel --outdir /tmp/wheel
+          python -m venv /tmp/smoke-venv
+          /tmp/smoke-venv/bin/pip install /tmp/wheel/opentele_ng-*.whl
+          /tmp/smoke-venv/bin/python -c "
+          import opentele, importlib.resources, sys
+          # devices.json must ship as package data — otherwise device fingerprinting crashes at runtime.
+          assert (importlib.resources.files('opentele') / 'devices.json').is_file(), 'devices.json not in wheel'
+          assert (importlib.resources.files('opentele') / 'py.typed').is_file(), 'py.typed not in wheel'
+          from opentele.api import API
+          api = API.TelegramAndroid.Generate(unique_id='ci-smoke')
+          assert api.device_model and api.system_version, 'device fingerprint generation broken'
+          # USP holds end-to-end
+          assert not any(m.startswith('PyQt') for m in sys.modules), 'Qt accidentally pulled in'
+          print(f'OK opentele-ng {opentele.__version__} wheel install end-to-end')
+          "
+
+  minimum-dependencies:
+    name: Minimum dependencies on Python ${{ matrix.python }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.10"
+            telethon: "1.36.0"
+          - python: "3.14"
+            telethon: "1.43.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Build wheel and install minimum runtime dependencies
+        env:
+          TELETHON_MINIMUM: ${{ matrix.telethon }}
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir /tmp/wheel
+          python -m venv /tmp/minimum-venv
+          /tmp/minimum-venv/bin/pip install /tmp/wheel/opentele_ng-*.whl "telethon==$TELETHON_MINIMUM" "tgcrypto-pyrofork==1.2.7"
+      - name: Check synchronous client and crypto without Qt
+        run: |
+          /tmp/minimum-venv/bin/python - <<'PY'
+          import sys
+          import tgcrypto
+          from opentele.tl import TelegramClient
+          client = TelegramClient(None)
+          assert not client.loop.is_closed()
+          client.session.close()
+          client.loop.close()
+          key, iv, plain = b"k" * 32, b"i" * 32, b"d" * 16
+          assert tgcrypto.ige256_decrypt(tgcrypto.ige256_encrypt(plain, key, iv), key, iv) == plain
+          assert not any(name.startswith("PyQt") for name in sys.modules)
+          print("Minimum runtime dependencies: OK")
+          PY

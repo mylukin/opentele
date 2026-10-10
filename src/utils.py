@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import abc
+import os
+import warnings
+from types import FunctionType
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Type, TypeVar
+
 from . import debug
 
-from typing import Coroutine, Tuple, Type, Callable, TypeVar, Optional, List, Any, Dict
-from types import FunctionType
 
-import abc
+def _extend_class_strict_mode() -> bool:
+    """OPENTELE_EXTEND_STRICT — управляет поведением @extend_class при конфликте.
+
+    Default: strict (TypeError) — поймать реальные коллизии с Telethon API.
+    Set to "0" / "false" / "no" для soft mode (RuntimeWarning, продолжаем).
+    """
+    value = os.environ.get("OPENTELE_EXTEND_STRICT", "1").strip().lower()
+    return value not in ("0", "false", "no", "off", "")
 
 APP_VERSION = 3004000
 TDF_MAGIC = b"TDF$"
@@ -61,7 +72,7 @@ class override(object):  # nocov
 
         # check if decorated_cls really is a function
         if not isinstance(decorated_func, FunctionType):
-            raise BaseException(
+            raise TypeError(
                 "@override decorator is only for functions, not classes"
             )
 
@@ -83,14 +94,24 @@ class extend_class(object):  # nocov
 
     def __new__(cls, decorated_cls: _TCLS, isOverride: bool = False) -> _TCLS:
 
-        # check if decorated_cls really is a class (type)
-        if not isinstance(cls, type):
-            raise BaseException(
+        # check if decorated_cls really is a class (type). Upstream проверял `cls`
+        # (метакласс — всегда type) — проверка была бесполезной. Phase 1.5 fix.
+        if not isinstance(decorated_cls, type):
+            raise TypeError(
                 "@extend_class decorator is only for classes, not functions"
             )
 
         newAttributes = dict(decorated_cls.__dict__)
-        crossDelete = ["__abstractmethods__", "__module__", "_abc_impl", "__doc__"]
+        # PEP 749 (Python 3.13+) добавил __firstlineno__ и __static_attributes__ —
+        # их нельзя переносить в родителя, они уникальны для каждого определения класса.
+        crossDelete = [
+            "__abstractmethods__",
+            "__module__",
+            "_abc_impl",
+            "__doc__",
+            "__firstlineno__",
+            "__static_attributes__",
+        ]
         [
             (newAttributes.pop(cross) if cross in newAttributes else None)
             for cross in crossDelete
@@ -108,17 +129,29 @@ class extend_class(object):  # nocov
                 # check if class base already has this attribute
                 result = extend_class.getattr(base, attributeName)
 
-                if result != None:
-                    if id(result["value"]) == id(attributeValue):
+                if result is not None:
+                    # В Python 3.13+ bound methods получают новый id() при каждом
+                    # доступе — сравнение по `id()` ненадёжно. Сравниваем по
+                    # __func__ (underlying function), которая стабильна.
+                    left = getattr(result["value"], "__func__", result["value"])
+                    right = getattr(attributeValue, "__func__", attributeValue)
+                    if left is right:
                         crossDelete[attributeName] = attributeValue
                     else:
 
                         # if not override this attribute
                         if not override.isOverride(attributeValue):
-                            print(
-                                f"[{attributeName}] {id(result['value'])} - {id(attributeValue)}"
+                            # Strict by default — поймать реальные коллизии (e.g. с
+                            # Telethon API). Soft mode — opt-in через env.
+                            message = (
+                                f"extend_class: attribute conflict for "
+                                f"{attributeName!r} on {base.__name__}; "
+                                f"keeping base value. Use @override to replace."
                             )
-                            raise BaseException("err")
+                            if _extend_class_strict_mode():
+                                raise TypeError(message)
+                            warnings.warn(message, RuntimeWarning, stacklevel=2)
+                            crossDelete[attributeName] = attributeValue
 
             [newAttributes.pop(cross) for cross in crossDelete]
 
@@ -127,7 +160,7 @@ class extend_class(object):  # nocov
             # let's backup this attribute for future uses
             result = extend_class.getattr(base, attributeName)
 
-            if result != None:
+            if result is not None:
                 # ! dirty code, gonna fix it later, it's okay for now
                 setattr(
                     base,
@@ -197,10 +230,13 @@ class sharemethod(type):
 
     def __new__(cls: Type[_T], func: _F) -> Type[_F]:
 
-        clsName = func.__class__.__name__
-        bases = func.__class__.__bases__
-        attrs = func.__dict__
-        # attrs = dict(func.__class__.__dict__)
+        # Phase 3: stable literals instead of `func.__class__.__name__/__bases__`.
+        # The dynamic form breaks Nuitka compilation (snakechilds/opentele-nuitka
+        # commit eb4ff4d). At runtime this descriptor wraps a function and the
+        # synthetic class name/bases don't matter for behavior.
+        clsName = "function"
+        bases = (object,)
+        attrs: Dict[str, Any] = {}
         result = super().__new__(cls, clsName, bases, attrs)
         result.__fget__ = func
 

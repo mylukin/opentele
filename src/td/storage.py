@@ -1,10 +1,12 @@
 from __future__ import annotations
-from .configs import *
-from . import shared as td
 
 import hashlib
 import os
+
 import tgcrypto
+
+from . import shared as td
+from .configs import *
 
 # if TYPE_CHECKING:
 #     from ..opentele import *
@@ -161,7 +163,7 @@ class Storage(BaseObject):
             self.fullSize = 0
 
         def writeData(self, data: QByteArray):
-            Expects(self.stream.device() != None, "stream.device is missing")
+            Expects(self.stream.device() is not None, "stream.device is missing")
 
             self.stream << data
             len = 0xFFFFFFFF if data.isNull() else data.size()
@@ -209,6 +211,18 @@ class Storage(BaseObject):
 
         # prepare for encryption
         size = toEncrypt.size()
+
+        # Phase 1.0.1: minimal valid upstream-readable encoding requires
+        # dataLen >= 4 (it includes the 4-byte size header itself — see
+        # TDesktop storage_file_utilities.cpp `dataLen < sizeof(uint32)` guard).
+        # For the empty-MapData edge case (size == 0) we emit dataLen=4 so
+        # both upstream and `DecryptLocal` accept it. This removed the need
+        # for the upstream `_settingsKey=FileKey(1851671142505648812)` magic
+        # which existed only to pad the encrypted descriptor past this guard.
+        if size == 0:
+            size = 4
+            toEncrypt = QByteArray(b"\x00\x00\x00\x00")
+
         fullSize = size
         if fullSize & 0x0F:
             fullSize += 0x10 - (fullSize & 0x0F)
@@ -565,7 +579,7 @@ class Storage(BaseObject):
     @staticmethod
     def GetAbsolutePath(path: str = None) -> str:
 
-        if path == None or path == "":
+        if path is None or path == "":
             path = os.getcwd()
 
         path = os.path.abspath(path)

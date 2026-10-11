@@ -27,6 +27,7 @@ permissions:
 
 jobs:
   test:
+    if: github.repository == 'stufently/opentele'
     name: Test before publish
     runs-on: ubuntu-24.04
     steps:
@@ -52,6 +53,7 @@ jobs:
         run: pytest --tb=short --ignore=tests/tdata_test.py --cov=opentele --cov-fail-under=78 tests/
 
   build:
+    if: github.repository == 'stufently/opentele'
     name: Build sdist + wheel
     needs: test
     runs-on: ubuntu-24.04
@@ -101,6 +103,7 @@ jobs:
           path: dist/
 
   publish-pypi:
+    if: github.repository == 'stufently/opentele'
     name: Upload to PyPI (Trusted Publishing)
     needs: build
     runs-on: ubuntu-24.04

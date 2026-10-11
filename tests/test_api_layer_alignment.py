@@ -107,9 +107,7 @@ def test_versions_for_layer_exact_match_wins() -> None:
 def test_versions_for_layer_falls_back_below_when_unknown() -> None:
     """A Telethon newer than this table must not fall back to ancient builds:
     it picks the highest layer that does not overshoot."""
-    assert TD._versions_for_layer(999) == [
-        "7.2.9", "7.2.8", "7.2.7", "7.2.5", "7.1.5", "7.1.4", "7.1.3", "7.1.2", "7.1.1", "7.1.0",
-    ]
+    assert TD._versions_for_layer(999) == ["7.3.1"]
 
 
 def test_versions_for_layer_with_ancient_layer_returns_oldest_entries() -> None:

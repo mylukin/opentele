@@ -34,6 +34,7 @@ concurrency:
 
 jobs:
   tag-and-publish:
+    if: github.repository == 'stufently/opentele'
     name: Tag v<version> and dispatch release
     runs-on: ubuntu-24.04
     steps:

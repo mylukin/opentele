@@ -472,12 +472,13 @@ class API(BaseObject):
             pass
 
         # Phase 6: STABLE Telegram Desktop releases, newest first, v6.0.0
-        # (2025-07-31) through v7.2.9 (2026-09-17). Betas are excluded on
+        # (2025-07-31) through v7.3.1 (2026-10-10). Betas are excluded on
         # purpose — a beta build reports its version differently, so advertising
         # a beta-only number is itself a tell.
         #
         # Source: github.com/telegramdesktop/tdesktop/releases.
         TELEGRAM_DESKTOP_VERSIONS: typing.ClassVar[List[str]] = [
+            "7.3.1",
             "7.2.9", "7.2.8", "7.2.7", "7.2.5",
             "7.1.5", "7.1.4", "7.1.3", "7.1.2", "7.1.1", "7.1.0",
             "7.0.9", "7.0.8", "7.0.7", "7.0.6", "7.0.5", "7.0.4", "7.0.3", "7.0.2", "7.0.1",
@@ -500,6 +501,7 @@ class API(BaseObject):
         # version X always announces the layer below. Claiming a version whose
         # layer does not match the one on the wire is a free giveaway.
         TELEGRAM_DESKTOP_LAYERS: typing.ClassVar[Dict[str, int]] = {
+            "7.3.1": 230,
             "7.2.9": 229, "7.2.8": 229, "7.2.7": 229, "7.2.5": 229,
             "7.1.5": 229, "7.1.4": 229, "7.1.3": 229, "7.1.2": 229, "7.1.1": 229, "7.1.0": 229,
             "7.0.9": 228, "7.0.8": 228, "7.0.7": 228, "7.0.6": 228, "7.0.5": 228,

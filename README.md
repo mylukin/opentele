@@ -2,6 +2,30 @@
 
 # opentele-ng
 
+## mylukin 维护分支（2026-10-11）
+
+本仓库采用 [stufently/opentele](https://github.com/stufently/opentele) 的维护版本，保留 thedemons 与 stufently 的完整来源历史。当前基线为 `6a17bc6c` / `opentele-ng 1.4.2`，本分支版本为 `1.4.2+mylukin.1`。
+
+- 最新稳定运行依赖：Telethon **1.45.0**、tgcrypto-pyrofork **1.2.8**；复用带哈希的 `requirements-docker.txt` 安装。Python 支持范围沿用维护版的 **3.10–3.14**。
+- 安装分发名是 `opentele-ng`，代码仍 `import opentele`。请使用独立虚拟环境，不与旧 `opentele` 混装。
+- 版本表新增 Telegram Desktop **7.3.1 / layer 230**。Telethon 1.45.0 使用 layer 229，默认版本仍按协议层匹配为 **7.2.9**；这不代表已通过 Desktop 7.3.1 的真实 tdata 验收。
+- 默认测试排除会连接 Telegram、修改源文件和终止其他会话的旧 `tests/tdata_test.py`。
+- 发布、打标签、Pages 部署及创建监控 issue 的上游工作流仅允许在 `stufently/opentele` 运行；本 fork 保留测试和静态检查。
+- 现有登录服务未切换到此版本；本轮只交付库升级与离线验证。
+
+```sh
+uv venv --python 3.14 .venv
+uv pip install --python .venv/bin/python --require-hashes -r requirements-docker.txt
+uv pip install --python .venv/bin/python --no-deps -e .
+# 开发验证（Qt6 仅作二进制格式对照测试）
+uv pip install --python .venv/bin/python -r requirements-test.txt build
+CI=true .venv/bin/python -m pytest --ignore=tests/tdata_test.py tests/
+.venv/bin/python -m build
+```
+
+同步：保留 `origin` 为本仓库，`maintained` 指向 `https://github.com/stufently/opentele.git`，后续在分支中合并并验证，不直接覆盖 main。详情见 [实现笔记](implementation-notes.md)。下方保留上游说明；其 PyPI、镜像、版本徽章及发布记录属于 stufently，不是本 fork 的发布结果。
+
+
 **PyPI package name: [`opentele-ng`](https://pypi.org/project/opentele-ng/).**
 This GitHub repository is called `opentele` for historical reasons; the package
 it publishes is `opentele-ng`. Same project, two names.

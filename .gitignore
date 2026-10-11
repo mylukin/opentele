@@ -22,3 +22,9 @@ opentele
 .env
 .env.local
 dist/
+
+.venv*/
+.pytest_cache/
+.hypothesis/
+*.session
+*.session-journal
